@@ -1,0 +1,52 @@
+name: lembrei_pegar
+description: "A new Flutter project."
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2 # Verifique se esta versão é compatível com seu Flutter (rode flutter --version). Ajuste se necessário.
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  intl: ^0.19.0
+  uuid: ^4.0.0
+  google_fonts: ^6.1.0 # <-- Adicionado para usar fontes bonitas
+  # *** Dependências do Firebase com números de versão reais ***
+  firebase_core: ^2.28.0 # Versão recente verificada
+  cloud_firestore: ^4.17.0 # Versão recente verificada
+  firebase_auth: ^4.19.5
+  collection: ^1.17.0 # Certifique-se de que esta linha está aqui (necessária para ReportsPage)
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: "^0.14.3"
+  flutter_local_notifications: ^17.1.2
+  android_alarm_manager_plus: ^3.0.4
+
+  flutter_lints: ^5.0.0
+
+# Restante do arquivo ...
+
+flutter:
+  uses-material-design: true
+
+# Restante do arquivo ...
+
+flutter_icons:
+  android: true # Gera ícones para Android (pode ser "launcher_icon" ou true)
+  ios: true     # Gera ícones para iOS
+  image_path: "assets/icon/logo.png" # <<< MUDE AQUI para o caminho da sua imagem
+  min_sdk_android: 21 # Opcional: defina sua minSdkVersion do Android (se já não estiver no build.gradle)
+  # Para Ícones Adaptativos no Android (Oreo e superior) - Recomendado!
+  # Se sua logo for simples e puder ser colocada sobre um fundo, você pode definir apenas o image_path.
+  # Se quiser mais controle (logo com transparência sobre um fundo colorido, ou uma logo que já tenha o formato desejado),
+  # você pode usar adaptive_icon_background e adaptive_icon_foreground.
+  adaptive_icon_background: "#FFFFFF" # Ex: cor de fundo em hexadecimal (branco) ou caminho para uma imagem de fundo
+  adaptive_icon_foreground: "assets/icon/logo_foreground.png" # <<< Crie uma versão da sua logo APENAS com o elemento principal (sem fundo) para o foreground

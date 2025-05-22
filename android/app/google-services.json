@@ -1,0 +1,43 @@
+{
+  "project_info": {
+    "project_number": "187950668823",
+    "project_id": "lembrei-de-pagar",
+    "storage_bucket": "lembrei-de-pagar.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:187950668823:android:3d0286f785d13bb303d052",
+        "android_client_info": {
+          "package_name": "com.example.lembrei_pegar"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "187950668823-e2vr5ehi2i25kcua1c0l8ma26pql86fi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.lembrei_pegar",
+            "certificate_hash": "8064a70c987a2817311a0e84d5c3f0980d599f77"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLuO20bWXr-aFGkSlCIYiJQeV65i8ygNw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "187950668823-uc88q4jbu42psad13700nb9puf1tu08s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
