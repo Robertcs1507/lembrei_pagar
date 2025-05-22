@@ -1,5 +1,7 @@
 import 'account.dart'; // Importa a classe Account
 import 'package:flutter/material.dart'; // Para IconData
+import '../models/category.dart' as app_models;
+import '../models/account.dart';
 
 class Category {
   String id; // << ADICIONADO: ID do documento no Firestore

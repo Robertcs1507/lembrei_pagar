@@ -23,20 +23,19 @@ class NotificationService {
     }
 
     tz.initializeTimeZones();
+    // Para flutter_local_notifications v17+, confiaremos no tz.local dentro de zonedSchedule
+    // para usar o fuso horário do dispositivo.
+    // Se for absolutamente necessário definir um fuso padrão aqui para outros cálculos com tz.local:
     try {
-      // Tenta obter e definir o fuso horário local.
-      // O plugin flutter_local_notifications v17+ usa tz.local internamente para zonedSchedule.
-      // Se for necessário definir explicitamente e houver problemas, pode-se usar 'flutter_timezone'.
-      // String deviceTimezone = await FlutterTimezone.getLocalTimezone();
-      // tz.setLocalLocation(tz.getLocation(deviceTimezone));
+      // Tenta definir um fuso padrão se necessário, mas tz.local no agendamento é o principal.
+      // tz.setLocalLocation(tz.getLocation('America/Sao_Paulo')); // Exemplo de fallback
       print(
         "Timezones inicializados. tz.local será usado para agendamento no zonedSchedule.",
       );
     } catch (e) {
       print(
-        "Erro na configuração de fuso horário: $e. Usando America/Sao_Paulo como fallback.",
+        "Erro na inicialização de timezones (ou ao tentar definir um local padrão): $e.",
       );
-      tz.setLocalLocation(tz.getLocation('America/Sao_Paulo'));
     }
 
     const AndroidInitializationSettings initializationSettingsAndroid =
@@ -180,7 +179,6 @@ class NotificationService {
     }
   }
 
-  // Este método é para ser chamado pelo AlarmManager, mas por enquanto não o usaremos
   Future<void> showNotificationNow({
     required int id,
     required String title,
@@ -199,7 +197,7 @@ class NotificationService {
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
           'lembrei_de_pagar_alarm_channel',
-          'Lembretes de Alarme', // Pode usar o mesmo canal ou um diferente
+          'Lembretes de Alarme',
           channelDescription: 'Notificações disparadas por alarmes agendados.',
           importance: Importance.max,
           priority: Priority.high,

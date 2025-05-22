@@ -5,15 +5,19 @@ import 'firebase_options.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'screens/auth_gate.dart';
 import 'services/notification_service.dart';
-// import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart'; // REMOVIDO POR ENQUANTO
-// import 'dart:io'; // REMOVIDO POR ENQUANTO
+import 'package:flutter/foundation.dart'; // Para kIsWeb
+import 'dart:io'; // Para Platform.isAndroid
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializa Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // Inicializa notificações locais
   final NotificationService notificationService = NotificationService();
   await notificationService.initializeNotifications((
     NotificationResponse response,
@@ -26,15 +30,19 @@ Future<void> main() async {
   });
   await notificationService.requestPermissions();
 
-  // A inicialização do AndroidAlarmManager foi REMOVIDA por enquanto.
-  // if (!kIsWeb && Platform.isAndroid) {
-  //   try {
-  //     await AndroidAlarmManager.initialize();
-  //     print("AndroidAlarmManager inicializado com sucesso.");
-  //   } catch (e) {
-  //     print("Erro ao inicializar AndroidAlarmManager: $e");
-  //   }
-  // }
+  // Inicializa o AndroidAlarmManager apenas se for Android (e não Web)
+  if (!kIsWeb && Platform.isAndroid) {
+    try {
+      await AndroidAlarmManager.initialize();
+      print("✅ AndroidAlarmManager inicializado com sucesso em main.dart.");
+    } catch (e) {
+      print("❌ Erro ao inicializar AndroidAlarmManager em main.dart: $e");
+    }
+  } else {
+    print(
+      "ℹ️ AndroidAlarmManager não inicializado (plataforma não suportada).",
+    );
+  }
 
   runApp(const MyApp());
 }
@@ -78,7 +86,7 @@ class MyApp extends StatelessWidget {
           filled: true,
           fillColor: Colors.blue.withOpacity(0.04),
         ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
           backgroundColor: Colors.blue,
           foregroundColor: Colors.white,
         ),

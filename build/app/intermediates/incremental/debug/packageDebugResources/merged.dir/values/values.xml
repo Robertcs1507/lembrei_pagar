@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gcm_defaultSenderId" translatable="false">187950668823</string>
+    <string name="google_api_key" translatable="false">AIzaSyCLuO20bWXr-aFGkSlCIYiJQeV65i8ygNw</string>
+    <string name="google_app_id" translatable="false">1:187950668823:android:3d0286f785d13bb303d052</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyCLuO20bWXr-aFGkSlCIYiJQeV65i8ygNw</string>
+    <string name="google_storage_bucket" translatable="false">lembrei-de-pagar.firebasestorage.app</string>
+    <string name="project_id" translatable="false">lembrei-de-pagar</string>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

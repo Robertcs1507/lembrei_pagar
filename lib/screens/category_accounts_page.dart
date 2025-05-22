@@ -1,16 +1,23 @@
+import 'dart:io'; // Para Platform.isAndroid
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // Para kIsWeb
 import 'package:flutter/services.dart';
-import '../models/category.dart';
-import '../models/account.dart'; // Certifique-se que este modelo usa 'lastPaidDate'
 import 'package:intl/intl.dart';
-import '../services/notification_service.dart'; // Para NotificationService e generateUniqueNotificationId
 import 'package:uuid/uuid.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+
+// <<< AJUSTE NO IMPORT DE CATEGORY para evitar conflito >>>
+import '../models/category.dart' as app_category;
+import '../models/account.dart';
+import '../services/notification_service.dart';
+import '../services/alarm_callback_service.dart';
 
 var uuid = Uuid();
 
 class CategoryAccountsPage extends StatefulWidget {
-  final Category category;
+  // <<< USA A SUA CATEGORY COM PREFIXO >>>
+  final app_category.Category category;
 
   const CategoryAccountsPage({Key? key, required this.category})
     : super(key: key);
@@ -57,89 +64,103 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
     }
   }
 
-  // Função APENAS para notificações LOCAIS
-  Future<void> _scheduleOrCancelLocalNotifications(
+  Future<void> _scheduleOrCancelAlarmsAndNotifications(
     Account account,
     String firestoreAccountId,
   ) async {
-    // Cancela notificações antigas
-    await NotificationService().cancelNotification(
-      generateUniqueNotificationId(
-        firestoreAccountId,
-        reminderTypeSuffix: "_1day_before",
-      ),
+    // IDs para Notificações Locais
+    int localNotifId1DayBefore = generateUniqueNotificationId(
+      firestoreAccountId,
+      reminderTypeSuffix: "_1day_before_local",
     );
-    await NotificationService().cancelNotification(
-      generateUniqueNotificationId(
-        firestoreAccountId,
-        reminderTypeSuffix: "_due_date",
-      ),
+    int localNotifIdDueDate = generateUniqueNotificationId(
+      firestoreAccountId,
+      reminderTypeSuffix: "_due_date_local_via_alarm_test",
+    ); // Usando o ID que o alarme usaria
+
+    // IDs para Alarmes do Android
+    int alarmId1DayBefore = generateUniqueNotificationId(
+      firestoreAccountId,
+      reminderTypeSuffix: "_alarm_1day",
     );
+    int alarmIdDueDate = generateUniqueNotificationId(
+      firestoreAccountId,
+      reminderTypeSuffix: "_alarm_actual_test",
+    ); // Renomeado para o teste do alarme
+
+    // 1. Cancelar tudo o que pode existir para esta conta
+    await NotificationService().cancelNotification(localNotifId1DayBefore);
+    await NotificationService().cancelNotification(localNotifIdDueDate);
+    if (!kIsWeb && Platform.isAndroid) {
+      print(
+        "Tentando cancelar alarmes para $firestoreAccountId: ID1=$alarmId1DayBefore, ID2=$alarmIdDueDate",
+      );
+      await AndroidAlarmManager.cancel(alarmId1DayBefore);
+      await AndroidAlarmManager.cancel(alarmIdDueDate);
+    }
 
     print(
-      "LocalNotif (scheduleFunc): Checando agendamento para ${account.name}, dueDate: ${account.dueDate}, isRecurring: ${account.isRecurring}, isPaid: ${account.isPaid}",
+      "ALARM/NOTIF DEBUG (scheduleFunc): Checando agendamento para ${account.name}, dueDate: ${account.dueDate}, isRecurring: ${account.isRecurring}, isPaid: ${account.isPaid}",
     );
 
-    // Agenda apenas se não for recorrente, não paga, e com data futura.
     if (!account.isRecurring &&
         !account.isPaid &&
         account.dueDate.isAfter(DateTime.now())) {
-      DateTime oneDayBefore = account.dueDate.subtract(const Duration(days: 1));
-      DateTime scheduledTimeOneDayBefore = DateTime(
-        oneDayBefore.year,
-        oneDayBefore.month,
-        oneDayBefore.day,
-        9,
-        0,
-      );
+      DateTime alarmOrNotificationTime = account.dueDate;
 
-      if (scheduledTimeOneDayBefore.isAfter(DateTime.now())) {
-        await NotificationService().scheduleNotification(
-          id: generateUniqueNotificationId(
-            firestoreAccountId,
-            reminderTypeSuffix: "_1day_before",
-          ),
-          title: 'Lembrete: Conta Vencendo Amanhã!',
-          body:
-              'Sua conta "${account.name}" vence amanhã, ${DateFormat('dd/MM/yyyy').format(account.dueDate.toLocal())}!',
-          scheduledDateTime: scheduledTimeOneDayBefore,
-          payload: firestoreAccountId,
+      if (!kIsWeb && Platform.isAndroid) {
+        if (alarmOrNotificationTime.isAfter(
+          DateTime.now().add(const Duration(seconds: 2)),
+        )) {
+          print(
+            "Agendando ALARME (TESTE) para ${account.name} em $alarmOrNotificationTime com ID de alarme $alarmIdDueDate",
+          ); // Usando alarmIdDueDate
+          bool scheduled = await AndroidAlarmManager.oneShotAt(
+            alarmOrNotificationTime,
+            alarmIdDueDate, // ID ÚNICO DO ALARME
+            alarmCallback,
+            exact: true,
+            wakeup: true,
+            params: {
+              "accountId": firestoreAccountId, "accountName": account.name,
+              "title": "ALARME DISPAROU!",
+              "body":
+                  "Conta (TESTE ALARME) \"${account.name}\" venceu às ${DateFormat('HH:mm').format(alarmOrNotificationTime.toLocal())}!",
+              "notificationId":
+                  localNotifIdDueDate, // ID para a notificação local que o callback vai disparar
+            },
+          );
+          if (scheduled) {
+            print(
+              ">>> SUCESSO: Alarme de teste agendado para $alarmOrNotificationTime",
+            );
+          } else {
+            print(
+              ">>> FALHA: Alarme de teste NÃO agendado para $alarmOrNotificationTime",
+            );
+          }
+        } else {
+          print(
+            "ALARM TEST: Horário do alarme ($alarmOrNotificationTime) já passou ou muito próximo de ${DateTime.now()}. Não agendando alarme.",
+          );
+        }
+      } else {
+        print(
+          "ALARM TEST: Plataforma é Web ou não Android. Usando Notificação Local para teste de horário.",
         );
-      }
-
-      DateTime scheduledTimeDueDate = DateTime(
-        account.dueDate.year,
-        account.dueDate.month,
-        account.dueDate.day,
-        9,
-        0,
-      );
-
-      if (scheduledTimeDueDate.isAfter(DateTime.now())) {
-        await NotificationService().scheduleNotification(
-          id: generateUniqueNotificationId(
-            firestoreAccountId,
-            reminderTypeSuffix: "_due_date",
-          ),
-          title: 'CONTA VENCE HOJE!',
-          body:
-              'Sua conta "${account.name}" vence hoje (${DateFormat('dd/MM/yyyy').format(account.dueDate.toLocal())}). Não se esqueça!',
-          scheduledDateTime: scheduledTimeDueDate,
-          payload: firestoreAccountId,
-        );
+        if (alarmOrNotificationTime.isAfter(DateTime.now())) {
+          await NotificationService().scheduleNotification(
+            id: localNotifIdDueDate, // Usando o ID da notificação local
+            title: 'TESTE NOTIFICAÇÃO (${kIsWeb ? "Web" : "iOS"})!',
+            body:
+                'Conta "${account.name}" vence ${DateFormat('HH:mm').format(alarmOrNotificationTime.toLocal())} (Teste)',
+            scheduledDateTime: alarmOrNotificationTime,
+            payload: firestoreAccountId,
+          );
+        }
       }
     } else if (account.isRecurring) {
-      print(
-        "Conta recorrente '${account.name}' salva/editada. Notificações locais do molde foram canceladas. HomePage irá reagendar a próxima ocorrência.",
-      );
-    } else {
-      // Log mais detalhado
-      String reason = "";
-      if (account.isRecurring) reason += "É recorrente. ";
-      if (account.isPaid) reason += "Já está paga. ";
-      if (!account.dueDate.isAfter(DateTime.now()))
-        reason += "Data de vencimento não é futura (${account.dueDate}). ";
-      print("Notificação local NÃO agendada para '${account.name}': $reason");
+      print("Conta recorrente '${account.name}'. HomePage irá reagendar.");
     }
   }
 
@@ -257,84 +278,37 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
               child: const Text('Adicionar'),
               onPressed: () async {
                 if (_accountNameController.text.trim().isEmpty) {
-                  if (mounted)
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('O nome da conta não pode estar vazio.'),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
+                  /* ... */
                   return;
                 }
                 int? recurringDay;
                 if (_isRecurringDialog) {
-                  if (_recurringDayController.text.trim().isEmpty) {
-                    if (mounted)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Informe o dia do vencimento mensal.'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    return;
-                  }
-                  recurringDay = int.tryParse(
-                    _recurringDayController.text.trim(),
-                  );
-                  if (recurringDay == null ||
-                      recurringDay < 1 ||
-                      recurringDay > 31) {
-                    if (mounted)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Dia do vencimento mensal inválido (1-31).',
-                          ),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    return;
-                  }
+                  /* ... */
                 }
                 DateTime effectiveDueDateForSave = _dialogSelectedDueDate;
                 if (_isRecurringDialog && recurringDay != null) {
-                  try {
-                    effectiveDueDateForSave = DateTime(
-                      _dialogSelectedDueDate.year,
-                      _dialogSelectedDueDate.month,
-                      recurringDay,
-                    );
-                    DateTime todayForCompare = DateTime(
-                      DateTime.now().year,
-                      DateTime.now().month,
-                      DateTime.now().day,
-                    );
-                    if (effectiveDueDateForSave.isBefore(todayForCompare) ||
-                        (effectiveDueDateForSave.isAtSameMomentAs(
-                              todayForCompare,
-                            ) &&
-                            _dialogSelectedDueDate.day > recurringDay)) {
-                      effectiveDueDateForSave = DateTime(
-                        _dialogSelectedDueDate.year,
-                        _dialogSelectedDueDate.month + 1,
-                        recurringDay,
-                      );
-                    }
-                    if (effectiveDueDateForSave.day != recurringDay) {
-                      effectiveDueDateForSave = DateTime(
-                        effectiveDueDateForSave.year,
-                        effectiveDueDateForSave.month + 1,
-                        0,
-                      );
-                    }
-                  } catch (e) {
-                    effectiveDueDateForSave = DateTime(
-                      _dialogSelectedDueDate.year,
-                      _dialogSelectedDueDate.month + 1,
-                      0,
-                    );
-                  }
+                  /* ... lógica de cálculo de effectiveDueDateForSave ... */
                 }
+
+                // <<< BLOCO DE TESTE PARA AGENDAR PARA DAQUI A 10 MINUTOS >>>
+                DateTime dateForScheduling;
+                bool isTestScheduling = false;
+                if (!_isRecurringDialog) {
+                  isTestScheduling = true;
+                  dateForScheduling = DateTime.now().add(
+                    const Duration(minutes: 10),
+                  );
+                  print(
+                    "ALARM TEST (AddDialog): Data REAL de vencimento para salvar: $effectiveDueDateForSave.",
+                  );
+                  print(
+                    "ALARM TEST (AddDialog): ALARME/NOTIFICAÇÃO será agendada para $dateForScheduling (daqui a 10 min)",
+                  );
+                } else {
+                  dateForScheduling = effectiveDueDateForSave;
+                }
+                // <<< FIM DO BLOCO DE TESTE >>>
+
                 final accountToSave = Account(
                   id: uuid.v4(),
                   categoryId: widget.category.id,
@@ -351,26 +325,24 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                   recurringDayOfMonth: recurringDay,
                   lastPaidDate: null,
                 );
+
                 try {
                   DocumentReference docRef = await FirebaseFirestore.instance
                       .collection('accounts')
                       .add(accountToSave.toFirestore());
                   String firestoreAccountId = docRef.id;
                   if (mounted) Navigator.of(dialogPopupContext).pop();
-                  await _scheduleOrCancelLocalNotifications(
-                    accountToSave.copyWith(id: firestoreAccountId),
+
+                  Account accountForScheduling = accountToSave.copyWith(
+                    id: firestoreAccountId,
+                    dueDate: dateForScheduling,
+                  );
+                  await _scheduleOrCancelAlarmsAndNotifications(
+                    accountForScheduling,
                     firestoreAccountId,
                   );
                 } catch (e) {
-                  print('Erro ao adicionar conta: $e');
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erro ao adicionar conta: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  /* ... */
                 }
               },
             ),
@@ -387,7 +359,6 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
     _isRecurringDialog = accountToEdit.isRecurring;
     _recurringDayController.text =
         accountToEdit.recurringDayOfMonth?.toString() ?? '';
-
     showDialog(
       context: context,
       builder: (BuildContext dialogPopupContext) {
@@ -497,60 +468,14 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
               child: const Text('Salvar'),
               onPressed: () async {
                 if (_accountNameController.text.trim().isEmpty) {
-                  if (mounted)
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('O nome da conta não pode estar vazio.'),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
+                  /* ... */
                   return;
                 }
                 int? recurringDay;
                 DateTime effectiveDueDate = _dialogSelectedDueDate;
                 if (_isRecurringDialog) {
-                  if (_recurringDayController.text.trim().isEmpty) {
-                    if (mounted)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Informe o dia do vencimento mensal.'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    return;
-                  }
-                  recurringDay = int.tryParse(
-                    _recurringDayController.text.trim(),
-                  );
-                  if (recurringDay == null ||
-                      recurringDay < 1 ||
-                      recurringDay > 31) {
-                    if (mounted)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Dia do vencimento mensal inválido (1-31).',
-                          ),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    return;
-                  }
-                  try {
-                    effectiveDueDate = DateTime(
-                      _dialogSelectedDueDate.year,
-                      _dialogSelectedDueDate.month,
-                      recurringDay,
-                    );
-                  } catch (e) {
-                    effectiveDueDate = DateTime(
-                      _dialogSelectedDueDate.year,
-                      _dialogSelectedDueDate.month + 1,
-                      0,
-                    );
-                  }
+                  /* ... */
                 }
-
                 Map<String, dynamic> dataToUpdate = {
                   'name': _accountNameController.text.trim(),
                   'dueDate': Timestamp.fromDate(effectiveDueDate),
@@ -563,52 +488,36 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                   'isRecurring': _isRecurringDialog,
                   'recurringDayOfMonth':
                       _isRecurringDialog ? recurringDay : null,
-                  // Mantém o lastPaidDate original, a menos que a conta deixe de ser recorrente
                   'lastPaidDate':
                       !_isRecurringDialog
                           ? null
                           : (accountToEdit.lastPaidDate != null
                               ? Timestamp.fromDate(accountToEdit.lastPaidDate!)
                               : null),
-                  // isPaid não é editado aqui diretamente, mas é mantido do objeto original para consistência
                   'isPaid': accountToEdit.isPaid,
                 };
-
                 try {
                   await FirebaseFirestore.instance
                       .collection('accounts')
                       .doc(accountToEdit.id)
                       .update(dataToUpdate);
-
-                  Account contaAtualizada = Account(
-                    id: accountToEdit.id,
-                    categoryId: accountToEdit.categoryId,
+                  Account contaAtualizada = accountToEdit.copyWith(
                     name: dataToUpdate['name'],
                     dueDate: effectiveDueDate,
                     value: dataToUpdate['value'] as double?,
-                    isPaid:
-                        accountToEdit
-                            .isPaid, // Usa o isPaid original para a lógica de notificação
                     isRecurring: dataToUpdate['isRecurring'],
                     recurringDayOfMonth: dataToUpdate['recurringDayOfMonth'],
-                    lastPaidDate: accountToEdit.lastPaidDate,
+                    lastPaidDate:
+                        (dataToUpdate['lastPaidDate'] as Timestamp?)?.toDate(),
+                    isPaid: accountToEdit.isPaid,
                   );
-
                   if (mounted) Navigator.of(dialogPopupContext).pop();
-                  await _scheduleOrCancelLocalNotifications(
+                  await _scheduleOrCancelAlarmsAndNotifications(
                     contaAtualizada,
                     contaAtualizada.id,
                   );
                 } catch (e) {
-                  print('Erro ao atualizar conta: $e');
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erro ao atualizar conta: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  /* ... */
                 }
               },
             ),
@@ -668,36 +577,39 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
               onPressed: () async {
                 try {
                   String accountId = account.id;
-                  // Apenas cancela notificações locais
                   await NotificationService().cancelNotification(
                     generateUniqueNotificationId(
                       accountId,
-                      reminderTypeSuffix: "_1day_before",
+                      reminderTypeSuffix: "_1day_before_local",
                     ),
                   );
                   await NotificationService().cancelNotification(
                     generateUniqueNotificationId(
                       accountId,
-                      reminderTypeSuffix: "_due_date",
+                      reminderTypeSuffix: "_due_date_local_via_alarm",
                     ),
                   );
-
+                  if (!kIsWeb && Platform.isAndroid) {
+                    await AndroidAlarmManager.cancel(
+                      generateUniqueNotificationId(
+                        accountId,
+                        reminderTypeSuffix: "_alarm_1day",
+                      ),
+                    );
+                    await AndroidAlarmManager.cancel(
+                      generateUniqueNotificationId(
+                        accountId,
+                        reminderTypeSuffix: "_alarm_actual_test",
+                      ),
+                    ); // Mudado para o ID do alarme de teste
+                  }
                   await FirebaseFirestore.instance
                       .collection('accounts')
                       .doc(accountId)
                       .delete();
                   if (mounted) Navigator.of(dialogPopupContext).pop();
                 } catch (e) {
-                  print('Erro ao excluir conta: $e');
-                  if (mounted) {
-                    Navigator.of(dialogPopupContext).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erro ao excluir conta: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  /* ... */
                 }
               },
             ),
@@ -707,6 +619,7 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
     );
   }
 
+  // <<< MÉTODO BUILD COMPLETO >>>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -732,6 +645,7 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
           if (accountsFromFirestore == null || accountsFromFirestore.isEmpty) {
             return const Center(child: Text('Não há contas nesta categoria.'));
           }
+
           return ListView.builder(
             itemCount: accountsFromFirestore.length,
             itemBuilder: (context, index) {
@@ -787,5 +701,11 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
         child: const Icon(Icons.add),
       ),
     );
+  }
+}
+
+extension TimeOfDayExtension on TimeOfDay {
+  DateTime toDateTime(DateTime date) {
+    return DateTime(date.year, date.month, date.day, hour, minute);
   }
 }

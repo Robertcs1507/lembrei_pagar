@@ -9,9 +9,9 @@
     },
     {
       "name": "android_alarm_manager_plus",
-      "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/android_alarm_manager_plus-3.0.4",
+      "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/android_alarm_manager_plus-4.0.7",
       "packageUri": "lib/",
-      "languageVersion": "2.18"
+      "languageVersion": "3.1"
     },
     {
       "name": "archive",
@@ -470,7 +470,7 @@
       "languageVersion": "3.7"
     }
   ],
-  "generated": "2025-05-22T12:24:52.115946Z",
+  "generated": "2025-05-22T18:14:49.670117Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///C:/Users/robert.carvalho/Documents/Projeto/Fluter/flutter_windows_3.29.3-stable/flutter",
