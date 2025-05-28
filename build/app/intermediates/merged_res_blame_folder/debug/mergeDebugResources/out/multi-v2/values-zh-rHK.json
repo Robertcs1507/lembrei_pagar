@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-35:/values-zh-rHK/values-zh-rHK.xml",
+            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-37:/values-zh-rHK/values-zh-rHK.xml",
             "map": [
                 {
                     "source": "C:\\Users\\robert.carvalho\\.gradle\\caches\\8.10.2\\transforms\\6643c4258ae11fe541bbf5ee341bcb98\\transformed\\browser-1.4.0\\res\\values-zh-rHK\\values-zh-rHK.xml",

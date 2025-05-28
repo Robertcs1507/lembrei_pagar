@@ -1,6 +1,6 @@
+// lib/models/account.dart
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // Para o método toString, se necessário
 
 var uuid = Uuid();
 
@@ -11,11 +11,13 @@ class Account {
   DateTime dueDate;
   double? value;
   bool isPaid;
+  String? userId; // <<< CAMPO ADICIONADO
+  DateTime? createdAt; // <<< CAMPO ADICIONADO
 
   // Campos para Recorrência
   bool isRecurring;
   int? recurringDayOfMonth;
-  DateTime? lastPaidDate; // Usando este nome consistentemente
+  DateTime? lastPaidDate;
 
   Account({
     String? id,
@@ -24,6 +26,8 @@ class Account {
     required this.dueDate,
     this.value,
     this.isPaid = false,
+    this.userId, // <<< ADICIONADO AO CONSTRUTOR
+    this.createdAt, // <<< ADICIONADO AO CONSTRUTOR
     this.isRecurring = false,
     this.recurringDayOfMonth,
     this.lastPaidDate,
@@ -36,6 +40,13 @@ class Account {
       'dueDate': Timestamp.fromDate(dueDate),
       'value': value,
       'isPaid': isPaid,
+      'userId': userId, // <<< ADICIONADO AO MAPA
+      'createdAt':
+          createdAt == null
+              ? FieldValue.serverTimestamp()
+              : Timestamp.fromDate(
+                createdAt!,
+              ), // Define na criação, mantém em atualizações
       'isRecurring': isRecurring,
       'recurringDayOfMonth': recurringDayOfMonth,
       'lastPaidDate':
@@ -57,6 +68,9 @@ class Account {
       dueDate: (data['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       value: (data['value'] as num?)?.toDouble(),
       isPaid: data['isPaid'] as bool? ?? false,
+      userId: data['userId'] as String?, // <<< LENDO DO FIRESTORE
+      createdAt:
+          (data['createdAt'] as Timestamp?)?.toDate(), // <<< LENDO DO FIRESTORE
       isRecurring: data['isRecurring'] as bool? ?? false,
       recurringDayOfMonth: data['recurringDayOfMonth'] as int?,
       lastPaidDate: (data['lastPaidDate'] as Timestamp?)?.toDate(),
@@ -70,6 +84,8 @@ class Account {
     DateTime? dueDate,
     double? value,
     bool? isPaid,
+    String? userId, // <<< ADICIONADO
+    DateTime? createdAt, // <<< ADICIONADO
     bool? isRecurring,
     int? recurringDayOfMonth,
     DateTime? lastPaidDate,
@@ -78,13 +94,15 @@ class Account {
   }) {
     if (createPaidInstance && occurrenceDueDate != null) {
       return Account(
-        id: uuid.v4(),
+        id: uuid.v4(), // Novo ID para a instância paga
         categoryId: categoryId ?? this.categoryId,
         name: name ?? this.name,
         dueDate: occurrenceDueDate,
         value: value ?? this.value,
         isPaid: true,
-        isRecurring: false,
+        userId: userId ?? this.userId, // Mantém o userId original
+        createdAt: DateTime.now(), // Nova instância, novo createdAt
+        isRecurring: false, // Instância paga não é o molde recorrente
         recurringDayOfMonth: null,
         lastPaidDate: null,
       );
@@ -96,6 +114,8 @@ class Account {
       dueDate: dueDate ?? this.dueDate,
       value: value ?? this.value,
       isPaid: isPaid ?? this.isPaid,
+      userId: userId ?? this.userId,
+      createdAt: createdAt ?? this.createdAt,
       isRecurring: isRecurring ?? this.isRecurring,
       recurringDayOfMonth: recurringDayOfMonth ?? this.recurringDayOfMonth,
       lastPaidDate: lastPaidDate ?? this.lastPaidDate,
@@ -112,58 +132,57 @@ class Account {
     int year = referenceDate.year;
     int month = referenceDate.month;
 
-    if (lastPaidDate != null &&
-        (lastPaidDate!.year > year ||
-            (lastPaidDate!.year == year && lastPaidDate!.month > month) ||
-            (lastPaidDate!.year == year &&
-                lastPaidDate!.month == month &&
-                lastPaidDate!.day >= recurringDayOfMonth!))) {
-      month = lastPaidDate!.month + 1;
-      if (month > 12) {
-        month = 1;
-        year = lastPaidDate!.year + 1;
+    if (lastPaidDate != null) {
+      if (referenceDate.day >= recurringDayOfMonth!) {
+        month = referenceDate.month + 1;
+        if (month > 12) {
+          month = 1;
+          year = referenceDate.year + 1;
+        } else {
+          year = referenceDate.year;
+        }
       } else {
-        year = lastPaidDate!.year;
+        month = referenceDate.month;
+        year = referenceDate.year;
       }
-    } else if (lastPaidDate == null) {
-      DateTime firstPossibleInCurrentMonth = DateTime(
+    } else {
+      DateTime potentialDueDateInCurrentCycle = DateTime(
         year,
         month,
         recurringDayOfMonth!,
       );
-      if (firstPossibleInCurrentMonth.isBefore(today)) {
-        month = now.month; // Start from current month
-        year = now.year;
-        DateTime potentialThisMonth = DateTime(
-          year,
-          month,
-          recurringDayOfMonth!,
-        );
-        if (potentialThisMonth.isBefore(today)) {
-          month++;
-          if (month > 12) {
-            month = 1;
-            year++;
-          }
+      if (potentialDueDateInCurrentCycle.isBefore(today) ||
+          (potentialDueDateInCurrentCycle.isAtSameMomentAs(today) && isPaid)) {
+        month = month + 1;
+        if (month > 12) {
+          month = 1;
+          year = year + 1;
         }
-      } else {
-        // If first occurrence is today or in the future, use its month and year
-        month = firstPossibleInCurrentMonth.month;
-        year = firstPossibleInCurrentMonth.year;
       }
     }
 
     try {
       return DateTime(year, month, recurringDayOfMonth!);
     } catch (e) {
-      // Handle invalid date (e.g., day 31 in a month with 30 days)
-      // Go to the last day of that month, then calculate next.
-      // This is a simplification; robust date logic can be complex.
-      try {
-        return DateTime(year, month + 1, 0); // Last day of the intended month
-      } catch (e2) {
-        return null; // Should not happen if year/month logic is correct
+      // print("Erro ao calcular nextPotentialDueDateForRecurringMolde (dia inválido): $year-$month-$recurringDayOfMonth");
+      // Tenta retornar o último dia do mês calculado se o dia recorrente for maior que o último dia do mês
+      if (recurringDayOfMonth! > 28) {
+        try {
+          DateTime lastDayOfMonth = DateTime(
+            year,
+            month + 1,
+            0,
+          ); // Último dia do mês 'month'
+          if (lastDayOfMonth.day < recurringDayOfMonth!) {
+            return lastDayOfMonth;
+          }
+        } catch (e2) {
+          // Se até mesmo calcular o último dia do mês falhar (ex: mês inválido), retorne null
+          // print("Erro ao calcular último dia do mês em nextPotentialDueDateForRecurringMolde: $e2");
+          return null;
+        }
       }
+      return null; // Retorna null se não puder construir uma data válida
     }
   }
 
@@ -177,6 +196,8 @@ class Account {
         other.dueDate == dueDate &&
         other.value == value &&
         other.isPaid == isPaid &&
+        other.userId == userId && // <<< ADICIONADO
+        other.createdAt == createdAt && // <<< ADICIONADO
         other.isRecurring == isRecurring &&
         other.recurringDayOfMonth == recurringDayOfMonth &&
         other.lastPaidDate == lastPaidDate;
@@ -190,6 +211,8 @@ class Account {
         dueDate.hashCode ^
         value.hashCode ^
         isPaid.hashCode ^
+        userId.hashCode ^ // <<< ADICIONADO
+        createdAt.hashCode ^ // <<< ADICIONADO
         isRecurring.hashCode ^
         recurringDayOfMonth.hashCode ^
         lastPaidDate.hashCode;
@@ -197,6 +220,6 @@ class Account {
 
   @override
   String toString() {
-    return 'Account(id: $id, name: $name, dueDate: ${dueDate.toIso8601String()}, value: $value, isPaid: $isPaid, isRecurring: $isRecurring, recDay: $recurringDayOfMonth, lastPaid: ${lastPaidDate?.toIso8601String()})';
+    return 'Account(id: $id, categoryId: $categoryId, name: $name, dueDate: ${dueDate.toIso8601String()}, value: $value, isPaid: $isPaid, userId: $userId, createdAt: ${createdAt?.toIso8601String()}, isRecurring: $isRecurring, recurringDayOfMonth: $recurringDayOfMonth, lastPaidDate: ${lastPaidDate?.toIso8601String()})';
   }
 }

@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-35:/values-el/values-el.xml",
+            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-37:/values-el/values-el.xml",
             "map": [
                 {
                     "source": "C:\\Users\\robert.carvalho\\.gradle\\caches\\8.10.2\\transforms\\ee6aa5fd7f2304b1bbe5c05f658d5472\\transformed\\jetified-play-services-base-18.0.1\\res\\values-el\\values.xml",

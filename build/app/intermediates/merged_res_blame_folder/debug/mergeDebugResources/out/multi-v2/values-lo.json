@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-35:/values-lo/values-lo.xml",
+            "outputFile": "com.example.lembrei_pegar.app-mergeDebugResources-37:/values-lo/values-lo.xml",
             "map": [
                 {
                     "source": "C:\\Users\\robert.carvalho\\.gradle\\caches\\8.10.2\\transforms\\7f46bbd13206153774356ca6103aa890\\transformed\\core-1.13.1\\res\\values-lo\\values-lo.xml",

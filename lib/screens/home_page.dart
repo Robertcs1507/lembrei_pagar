@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:lembrei_pegar/services/notification_service.dart';
 
 import '../models/category.dart';
 import '../models/account.dart';

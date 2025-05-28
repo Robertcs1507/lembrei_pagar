@@ -14,23 +14,38 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializa Firebase
+  // Inicializa Firebase Core (essencial antes de qualquer serviço Firebase)
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Inicializa notificações locais
+  // --- Configuração do Firebase Messaging ---
+  // O handler de background para FCM precisa ser configurado aqui,
+  // antes da inicialização do NotificationService se ele próprio não o fizer,
+  // ou se o NotificationService precisar dessa função como parâmetro.
+  // Vamos assumir que o NotificationService.initialize() cuidará disso.
+  // Se o firebaseMessagingBackgroundHandler estiver no notification_service.dart:
+  // FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler); // Descomente quando a função existir
+
+  // Inicializa o NotificationService (que agora também cuidará do FCM)
   final NotificationService notificationService = NotificationService();
-  await notificationService.initializeNotifications((
-    NotificationResponse response,
-  ) async {
-    final String? payload = response.payload;
-    if (payload != null && payload.isNotEmpty) {
-      debugPrint('main.dart: Notificação clicada com payload: $payload');
-      // navigatorKey.currentState?.pushNamed('/detalhes_conta', arguments: payload);
-    }
-  });
-  await notificationService.requestPermissions();
+  await notificationService.initialize(
+    // Renomeado de initializeNotifications para initialize
+    (NotificationResponse response) async {
+      // Callback para quando uma NOTIFICAÇÃO LOCAL é tocada
+      final String? payload = response.payload;
+      if (payload != null && payload.isNotEmpty) {
+        debugPrint('main.dart: Notificação LOCAL tocada com payload: $payload');
+        // Exemplo de navegação (descomente e ajuste se necessário):
+        // navigatorKey.currentState?.pushNamed('/detalhes_conta', arguments: payload);
+      }
+    },
+  );
+
+  // A solicitação de permissão para notificações LOCAIS já está no seu NotificationService.
+  // A solicitação de permissão para FCM será feita dentro do `notificationService.initialize()`.
 
   // Inicializa o AndroidAlarmManager apenas se for Android (e não Web)
+  // Considere se o AndroidAlarmManager ainda é necessário se o FCM + Local Notifications
+  // com agendamento exato cobrirem seus casos de uso.
   if (!kIsWeb && Platform.isAndroid) {
     try {
       await AndroidAlarmManager.initialize();

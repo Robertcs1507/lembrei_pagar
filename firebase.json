@@ -1,1 +1,41 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"lembrei-de-pagar","appId":"1:187950668823:android:3d0286f785d13bb303d052","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"lembrei-de-pagar","configurations":{"android":"1:187950668823:android:3d0286f785d13bb303d052","ios":"1:187950668823:ios:0e6fd71caff9de4703d052","macos":"1:187950668823:ios:0e6fd71caff9de4703d052","web":"1:187950668823:web:a10eae7cbebf5c2003d052","windows":"1:187950668823:web:baa621eae1f79cf703d052"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "lembrei-de-pagar",
+          "appId": "1:187950668823:android:3d0286f785d13bb303d052",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "lembrei-de-pagar",
+          "configurations": {
+            "android": "1:187950668823:android:3d0286f785d13bb303d052",
+            "ios": "1:187950668823:ios:0e6fd71caff9de4703d052",
+            "macos": "1:187950668823:ios:0e6fd71caff9de4703d052",
+            "web": "1:187950668823:web:a10eae7cbebf5c2003d052",
+            "windows": "1:187950668823:web:baa621eae1f79cf703d052"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        // "npm --prefix \"$RESOURCE_DIR\" run lint" // <<< LINHA COMENTADA
+      ]
+    }
+  ]
+}

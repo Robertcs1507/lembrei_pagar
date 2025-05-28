@@ -158,6 +158,24 @@
       "languageVersion": "3.2"
     },
     {
+      "name": "firebase_messaging",
+      "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/firebase_messaging-14.9.4",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "firebase_messaging_platform_interface",
+      "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/firebase_messaging_platform_interface-4.5.37",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "firebase_messaging_web",
+      "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/firebase_messaging_web-3.8.7",
+      "packageUri": "lib/",
+      "languageVersion": "3.2"
+    },
+    {
       "name": "fixnum",
       "rootUri": "file:///C:/Users/robert.carvalho/AppData/Local/Pub/Cache/hosted/pub.dev/fixnum-1.1.1",
       "packageUri": "lib/",
@@ -470,7 +488,7 @@
       "languageVersion": "3.7"
     }
   ],
-  "generated": "2025-05-22T18:14:49.670117Z",
+  "generated": "2025-05-27T14:56:59.602634Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///C:/Users/robert.carvalho/Documents/Projeto/Fluter/flutter_windows_3.29.3-stable/flutter",
