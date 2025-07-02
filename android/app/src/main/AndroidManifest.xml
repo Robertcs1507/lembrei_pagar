@@ -12,7 +12,7 @@
 
 
     <application
-        android:label="lembrei_pegar"
+        android:label="lembrei de pagar"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
