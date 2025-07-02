@@ -11,13 +11,16 @@ class Account {
   DateTime dueDate;
   double? value;
   bool isPaid;
-  String? userId; // <<< CAMPO ADICIONADO
-  DateTime? createdAt; // <<< CAMPO ADICIONADO
+  String? userId;
+  DateTime? createdAt;
 
   // Campos para Recorrência
   bool isRecurring;
   int? recurringDayOfMonth;
   DateTime? lastPaidDate;
+
+  // NOVO CAMPO: Data em que esta instância específica da conta foi marcada como paga
+  DateTime? paidDate;
 
   Account({
     String? id,
@@ -26,11 +29,12 @@ class Account {
     required this.dueDate,
     this.value,
     this.isPaid = false,
-    this.userId, // <<< ADICIONADO AO CONSTRUTOR
-    this.createdAt, // <<< ADICIONADO AO CONSTRUTOR
+    this.userId,
+    this.createdAt,
     this.isRecurring = false,
     this.recurringDayOfMonth,
     this.lastPaidDate,
+    this.paidDate, // <<< ADICIONADO AQUI NO CONSTRUTOR
   }) : this.id = id ?? uuid.v4();
 
   Map<String, dynamic> toFirestore() {
@@ -40,17 +44,19 @@ class Account {
       'dueDate': Timestamp.fromDate(dueDate),
       'value': value,
       'isPaid': isPaid,
-      'userId': userId, // <<< ADICIONADO AO MAPA
+      'userId': userId,
       'createdAt':
           createdAt == null
               ? FieldValue.serverTimestamp()
-              : Timestamp.fromDate(
-                createdAt!,
-              ), // Define na criação, mantém em atualizações
+              : Timestamp.fromDate(createdAt!),
       'isRecurring': isRecurring,
       'recurringDayOfMonth': recurringDayOfMonth,
       'lastPaidDate':
           lastPaidDate != null ? Timestamp.fromDate(lastPaidDate!) : null,
+      'paidDate':
+          paidDate != null
+              ? Timestamp.fromDate(paidDate!)
+              : null, // <<< ADICIONADO AO MAPA
     };
   }
 
@@ -68,12 +74,13 @@ class Account {
       dueDate: (data['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       value: (data['value'] as num?)?.toDouble(),
       isPaid: data['isPaid'] as bool? ?? false,
-      userId: data['userId'] as String?, // <<< LENDO DO FIRESTORE
-      createdAt:
-          (data['createdAt'] as Timestamp?)?.toDate(), // <<< LENDO DO FIRESTORE
+      userId: data['userId'] as String?,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       isRecurring: data['isRecurring'] as bool? ?? false,
       recurringDayOfMonth: data['recurringDayOfMonth'] as int?,
       lastPaidDate: (data['lastPaidDate'] as Timestamp?)?.toDate(),
+      paidDate:
+          (data['paidDate'] as Timestamp?)?.toDate(), // <<< LENDO DO FIRESTORE
     );
   }
 
@@ -84,27 +91,34 @@ class Account {
     DateTime? dueDate,
     double? value,
     bool? isPaid,
-    String? userId, // <<< ADICIONADO
-    DateTime? createdAt, // <<< ADICIONADO
+    String? userId,
+    DateTime? createdAt,
     bool? isRecurring,
     int? recurringDayOfMonth,
     DateTime? lastPaidDate,
+    DateTime? paidDate, // <<< ADICIONADO AQUI NO copyWith
     bool createPaidInstance = false,
-    DateTime? occurrenceDueDate,
+    DateTime? occurrenceDueDate, // A data de vencimento da instância específica
   }) {
-    if (createPaidInstance && occurrenceDueDate != null) {
+    if (createPaidInstance) {
+      // Criar uma nova instância paga para contas recorrentes
       return Account(
         id: uuid.v4(), // Novo ID para a instância paga
         categoryId: categoryId ?? this.categoryId,
         name: name ?? this.name,
-        dueDate: occurrenceDueDate,
+        dueDate:
+            occurrenceDueDate ??
+            this.dueDate, // A data de vencimento da ocorrência atual
         value: value ?? this.value,
         isPaid: true,
         userId: userId ?? this.userId, // Mantém o userId original
         createdAt: DateTime.now(), // Nova instância, novo createdAt
-        isRecurring: false, // Instância paga não é o molde recorrente
+        isRecurring:
+            false, // Esta instância é uma conta paga única, não recorrente
         recurringDayOfMonth: null,
         lastPaidDate: null,
+        paidDate:
+            DateTime.now(), // <<< Define a data de pagamento para AGORA (para a nova instância paga)
       );
     }
     return Account(
@@ -119,6 +133,8 @@ class Account {
       isRecurring: isRecurring ?? this.isRecurring,
       recurringDayOfMonth: recurringDayOfMonth ?? this.recurringDayOfMonth,
       lastPaidDate: lastPaidDate ?? this.lastPaidDate,
+      paidDate:
+          paidDate ?? this.paidDate, // <<< ADICIONADO AQUI NO copyWith normal
     );
   }
 
@@ -128,29 +144,30 @@ class Account {
     }
     DateTime now = DateTime.now();
     DateTime today = DateTime(now.year, now.month, now.day);
-    DateTime referenceDate = lastPaidDate ?? dueDate;
+    DateTime referenceDate =
+        lastPaidDate ?? dueDate; // Usa lastPaidDate se existir, senão dueDate
+
     int year = referenceDate.year;
     int month = referenceDate.month;
 
-    if (lastPaidDate != null) {
-      if (referenceDate.day >= recurringDayOfMonth!) {
-        month = referenceDate.month + 1;
-        if (month > 12) {
-          month = 1;
-          year = referenceDate.year + 1;
-        } else {
-          year = referenceDate.year;
-        }
-      } else {
-        month = referenceDate.month;
-        year = referenceDate.year;
+    // Se a conta recorrente já foi paga em um dia >= dia recorrente no mês de referência,
+    // a próxima ocorrência deve ser no próximo mês.
+    if (lastPaidDate != null && referenceDate.day >= recurringDayOfMonth!) {
+      month = referenceDate.month + 1;
+      if (month > 12) {
+        month = 1;
+        year = referenceDate.year + 1;
       }
-    } else {
+    } else if (lastPaidDate == null) {
+      // Se nunca foi paga e a dueDate (data base do molde) já passou no mês atual,
+      // então a próxima é no mês seguinte.
       DateTime potentialDueDateInCurrentCycle = DateTime(
         year,
         month,
         recurringDayOfMonth!,
       );
+      // Se o dia recorrente já passou neste mês E a conta não está marcada como paga (referindo-se ao molde),
+      // ou se o dia é hoje e a conta JÁ foi paga (o que significa que a recorrência é para o próximo ciclo)
       if (potentialDueDateInCurrentCycle.isBefore(today) ||
           (potentialDueDateInCurrentCycle.isAtSameMomentAs(today) && isPaid)) {
         month = month + 1;
@@ -162,23 +179,26 @@ class Account {
     }
 
     try {
-      return DateTime(year, month, recurringDayOfMonth!);
+      // Retorna a data calculada, mas verifica se o dia é válido para o mês/ano
+      // (Ex: dia 31 em fev)
+      DateTime calculatedDate = DateTime(year, month, recurringDayOfMonth!);
+      return calculatedDate;
     } catch (e) {
-      // print("Erro ao calcular nextPotentialDueDateForRecurringMolde (dia inválido): $year-$month-$recurringDayOfMonth");
+      // Se a data calculada (dia do mês) não for válida para o mês/ano (ex: 31 de fevereiro)
       // Tenta retornar o último dia do mês calculado se o dia recorrente for maior que o último dia do mês
       if (recurringDayOfMonth! > 28) {
+        // Apenas para dias que podem causar problemas (29, 30, 31)
         try {
           DateTime lastDayOfMonth = DateTime(
             year,
             month + 1,
             0,
-          ); // Último dia do mês 'month'
+          ); // O dia 0 do próximo mês é o último dia do mês atual
           if (lastDayOfMonth.day < recurringDayOfMonth!) {
-            return lastDayOfMonth;
+            return lastDayOfMonth; // Retorna o último dia válido do mês
           }
         } catch (e2) {
-          // Se até mesmo calcular o último dia do mês falhar (ex: mês inválido), retorne null
-          // print("Erro ao calcular último dia do mês em nextPotentialDueDateForRecurringMolde: $e2");
+          // Fallback final se algo der muito errado
           return null;
         }
       }
@@ -196,11 +216,12 @@ class Account {
         other.dueDate == dueDate &&
         other.value == value &&
         other.isPaid == isPaid &&
-        other.userId == userId && // <<< ADICIONADO
-        other.createdAt == createdAt && // <<< ADICIONADO
+        other.userId == userId &&
+        other.createdAt == createdAt &&
         other.isRecurring == isRecurring &&
         other.recurringDayOfMonth == recurringDayOfMonth &&
-        other.lastPaidDate == lastPaidDate;
+        other.lastPaidDate == lastPaidDate &&
+        other.paidDate == paidDate; // <<< ADICIONADO AO OPERADOR ==
   }
 
   @override
@@ -211,15 +232,16 @@ class Account {
         dueDate.hashCode ^
         value.hashCode ^
         isPaid.hashCode ^
-        userId.hashCode ^ // <<< ADICIONADO
-        createdAt.hashCode ^ // <<< ADICIONADO
+        userId.hashCode ^
+        createdAt.hashCode ^
         isRecurring.hashCode ^
         recurringDayOfMonth.hashCode ^
-        lastPaidDate.hashCode;
+        lastPaidDate.hashCode ^
+        paidDate.hashCode; // <<< ADICIONADO AO HASHCODE
   }
 
   @override
   String toString() {
-    return 'Account(id: $id, categoryId: $categoryId, name: $name, dueDate: ${dueDate.toIso8601String()}, value: $value, isPaid: $isPaid, userId: $userId, createdAt: ${createdAt?.toIso8601String()}, isRecurring: $isRecurring, recurringDayOfMonth: $recurringDayOfMonth, lastPaidDate: ${lastPaidDate?.toIso8601String()})';
+    return 'Account(id: $id, categoryId: $categoryId, name: $name, dueDate: ${dueDate.toIso8601String()}, value: $value, isPaid: $isPaid, userId: $userId, createdAt: ${createdAt?.toIso8601String()}, isRecurring: $isRecurring, recurringDayOfMonth: $recurringDayOfMonth, lastPaidDate: ${lastPaidDate?.toIso8601String()}, paidDate: ${paidDate?.toIso8601String()})';
   }
 }

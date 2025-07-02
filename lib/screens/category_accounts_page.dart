@@ -12,9 +12,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/category.dart' as app_models;
 import '../models/account.dart'; // Seu modelo Account atualizado
 import '../services/notification_service.dart'; // Para generateUniqueNotificationId e NotificationService()
-// Se você não estiver usando AndroidAlarmManager para ESTES lembretes, pode remover os imports relacionados a ele
-// import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-// import '../services/alarm_callback_service.dart';
 
 var uuid = Uuid();
 
@@ -66,20 +63,38 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
     }
   }
 
-  // >>> NOVA FUNÇÃO PARA AGENDAR LEMBRETES DIÁRIOS <<<
-  Future<void> _scheduleDailyRemindersUntilDueDate(Account account) async {
+  // >>> FUNÇÃO DE AGENDAMENTO/CANCELAMENTO DE LEMBRETES <<<
+  // Esta função agora recebe a conta e o status pago/não pago para decidir se agenda ou cancela
+  Future<void> _scheduleOrCancelAccountNotifications(Account account) async {
     final String firestoreAccountId = account.id;
     debugPrint(
-      "--- Iniciando Agendamento/Cancelamento de Lembretes Diários para: ${account.name} (ID: $firestoreAccountId) ---",
+      "--- Iniciando Agendamento/Cancelamento de Lembretes para: ${account.name} (ID: $firestoreAccountId) ---",
     );
 
-    // 1. Cancelar todas as 6 possíveis notificações antigas para esta conta
+    // Sempre cancelar todas as notificações existentes para evitar duplicidade
+    // ou notificações indesejadas após alteração de status/dados.
+    // Para notif de 1 dia antes e HOJE (com sufixos específicos)
+    await NotificationService().cancelNotification(
+      generateUniqueNotificationId(
+        firestoreAccountId,
+        reminderTypeSuffix: "_1day_before",
+      ),
+    );
+    await NotificationService().cancelNotification(
+      generateUniqueNotificationId(
+        firestoreAccountId,
+        reminderTypeSuffix: "_due_date",
+      ),
+    );
+
+    // Se você tiver outros sufixos de notificação, adicione-os aqui para cancelar
+    // Ex: for (int daysBefore = 0; daysBefore <= 5; daysBefore++) { ... }
+    // No seu Home, você tem múltiplos dias, então aqui também precisaria cancelar todos eles
     for (int daysBefore = 0; daysBefore <= 5; daysBefore++) {
-      // Inclui o dia do vencimento (0 dias antes) até 5 dias antes
       String suffix =
           (daysBefore == 0)
-              ? "_due_today_9am" // Dia do vencimento
-              : "_${daysBefore}_days_before_9am"; // Dias anteriores
+              ? "_due_today_9am"
+              : "_${daysBefore}_days_before_9am";
       final int oldNotificationId = generateUniqueNotificationId(
         firestoreAccountId,
         reminderTypeSuffix: suffix,
@@ -90,83 +105,172 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
       );
     }
 
-    // 2. Se a conta NÃO está paga, agendar as novas notificações
+    // Se a conta NÃO está paga E NÃO é um molde recorrente (ou seja, é uma conta a vencer única),
+    // agendar notificações. Para moldes recorrentes, o agendamento é feito na HomePage
+    // ou quando a próxima instância é gerada.
+    // IMPORTANTE: Para contas recorrentes que são o MOLDE, a notificação deve ser para o nextPotentialDueDateForRecurringMolde
+    // Se account.isRecurring for TRUE (é um molde), só agenda se lastPaidDate indicar que a próxima está no futuro.
+    // Se account.isRecurring for FALSE, agenda se não estiver paga e for futura.
     if (!account.isPaid) {
-      debugPrint("Conta NÃO está paga. Agendando novos lembretes diários...");
-
-      for (int daysBefore = 0; daysBefore <= 5; daysBefore++) {
-        DateTime notificationDay = account.dueDate.subtract(
-          Duration(days: daysBefore),
-        );
-        DateTime scheduledDateTime = DateTime(
-          notificationDay.year,
-          notificationDay.month,
-          notificationDay.day,
-          9, // 09:00 AM
-          0, // 00 minutos
-        );
-
-        DateTime now = DateTime.now();
-        if (scheduledDateTime.isAfter(now)) {
-          String suffix =
-              (daysBefore == 0)
-                  ? "_due_today_9am"
-                  : "_${daysBefore}_days_before_9am";
-          final int newNotificationId = generateUniqueNotificationId(
-            firestoreAccountId,
-            reminderTypeSuffix: suffix,
-          );
-
-          String title;
-          String body;
-          String formattedDueDate = DateFormat(
-            'dd/MM/yyyy',
-          ).format(account.dueDate.toLocal());
-
-          if (daysBefore == 0) {
-            title = " ATENÇÃO: Conta Vence HOJE!";
-            body =
-                "Sua conta '${account.name}' vence HOJE ($formattedDueDate). Não se esqueça!";
-          } else if (daysBefore == 1) {
-            title = " Lembrete: Conta Vence AMANHÃ!";
-            body =
-                "Sua conta '${account.name}' vence AMANHÃ ($formattedDueDate). Prepare-se!";
-          } else {
-            title = " Lembrete: Conta Vence em $daysBefore Dias!";
-            body =
-                "Sua conta '${account.name}' vence em $daysBefore dias ($formattedDueDate). Não se esqueça!";
-          }
-
-          debugPrint(
-            "AGENDANDO para ${account.name}: Notif ID $newNotificationId, Data/Hora: $scheduledDateTime, Título: $title",
-          );
-          await NotificationService().scheduleNotification(
-            id: newNotificationId,
-            title: title,
-            body: body,
-            scheduledDateTime: scheduledDateTime,
-            payload: firestoreAccountId,
-          );
+      // Se é um molde recorrente, agendamos para a próxima data calculada
+      if (account.isRecurring) {
+        DateTime? nextMoldeDueDate =
+            account.nextPotentialDueDateForRecurringMolde;
+        if (nextMoldeDueDate != null &&
+            nextMoldeDueDate.isAfter(DateTime.now())) {
+          // Reagenda as notificações para o molde recorrente
+          _scheduleMoldeRecurringNotifications(
+            account.copyWith(dueDate: nextMoldeDueDate),
+          ); // Passa o molde com a próxima data de vencimento
         } else {
           debugPrint(
-            "NÃO AGENDADO para ${account.name}: Data ${scheduledDateTime} já passou (Dias antes: $daysBefore). Agora: $now",
+            "Molde recorrente '${account.name}' não será notificado agora (próxima data no passado ou nula).",
           );
         }
+      } else {
+        // Se é uma conta única (não recorrente) e não está paga, agenda as notificações diárias
+        _scheduleDailyRemindersForSingleAccount(account);
       }
     } else {
       debugPrint(
-        "Conta '${account.name}' está PAGA. Todas as 6 possíveis notificações foram canceladas.",
+        "Conta '${account.name}' está PAGA. Todas as notificações foram canceladas.",
       );
     }
     debugPrint(
-      "--- Fim do Agendamento/Cancelamento de Lembretes Diários para: ${account.name} ---",
+      "--- Fim do Agendamento/Cancelamento de Lembretes para: ${account.name} ---",
     );
   }
 
+  // Novo: Agendamento para contas ÚNICAS (não recorrentes)
+  Future<void> _scheduleDailyRemindersForSingleAccount(Account account) async {
+    final String firestoreAccountId = account.id;
+    debugPrint(
+      "Agendando lembretes diários para conta ÚNICA: ${account.name}...",
+    );
+
+    for (int daysBefore = 0; daysBefore <= 5; daysBefore++) {
+      // 0 a 5 dias antes do vencimento
+      DateTime notificationDay = account.dueDate.subtract(
+        Duration(days: daysBefore),
+      );
+      DateTime scheduledDateTime = DateTime(
+        notificationDay.year,
+        notificationDay.month,
+        notificationDay.day,
+        9,
+        0, // 09:00 AM
+      );
+
+      DateTime now = DateTime.now();
+      if (scheduledDateTime.isAfter(now)) {
+        String suffix =
+            (daysBefore == 0)
+                ? "_due_today_9am"
+                : "_${daysBefore}_days_before_9am";
+        final int newNotificationId = generateUniqueNotificationId(
+          firestoreAccountId,
+          reminderTypeSuffix: suffix,
+        );
+        String title;
+        String body;
+        String formattedDueDate = DateFormat(
+          'dd/MM/yyyy',
+        ).format(account.dueDate.toLocal());
+
+        if (daysBefore == 0) {
+          title = "ATENÇÃO: Conta Vence HOJE!";
+          body =
+              "Sua conta '${account.name}' vence HOJE ($formattedDueDate). Não se esqueça!";
+        } else if (daysBefore == 1) {
+          title = "Lembrete: Conta Vence AMANHÃ!";
+          body =
+              "Sua conta '${account.name}' vence AMANHÃ ($formattedDueDate). Prepare-se!";
+        } else {
+          title = "Lembrete: Conta Vence em $daysBefore Dias!";
+          body =
+              "Sua conta '${account.name}' vence em $daysBefore dias ($formattedDueDate). Não se esqueça!";
+        }
+
+        debugPrint(
+          "AGENDANDO: Notif ID $newNotificationId, Data/Hora: $scheduledDateTime, Título: $title",
+        );
+        await NotificationService().scheduleNotification(
+          id: newNotificationId,
+          title: title,
+          body: body,
+          scheduledDateTime: scheduledDateTime,
+          payload: firestoreAccountId,
+        );
+      } else {
+        debugPrint(
+          "NÃO AGENDADO (data passada): ${account.name} (Dias antes: $daysBefore). Agora: $now",
+        );
+      }
+    }
+  }
+
+  // Novo: Agendamento para Moldes RECORRENTES (próxima ocorrência)
+  Future<void> _scheduleMoldeRecurringNotifications(Account molde) async {
+    final String firestoreAccountId = molde.id;
+    debugPrint("Agendando lembretes para MOLDE RECORRENTE: ${molde.name}...");
+
+    DateTime? nextDueDate = molde.nextPotentialDueDateForRecurringMolde;
+    if (nextDueDate == null || !nextDueDate.isAfter(DateTime.now())) {
+      debugPrint(
+        "Próxima data de vencimento do molde recorrente '${molde.name}' não é válida ou já passou. Nenhuma notificação agendada.",
+      );
+      return;
+    }
+
+    // Agendar 1 dia antes
+    DateTime oneDayBefore = nextDueDate.subtract(const Duration(days: 1));
+    DateTime scheduledOneDayBefore = DateTime(
+      oneDayBefore.year,
+      oneDayBefore.month,
+      oneDayBefore.day,
+      9,
+      0,
+    );
+    if (scheduledOneDayBefore.isAfter(DateTime.now())) {
+      await NotificationService().scheduleNotification(
+        id: generateUniqueNotificationId(
+          molde.id,
+          reminderTypeSuffix: "_1day_before",
+        ),
+        title: 'Lembrete Recorrente: Vence Amanhã!',
+        body:
+            'Sua conta mensal "${molde.name}" vence amanhã, ${DateFormat('dd/MM/yyyy').format(nextDueDate.toLocal())}!',
+        scheduledDateTime: scheduledOneDayBefore,
+        payload: molde.id,
+      );
+      debugPrint("Agendado: Molde '${molde.name}' 1 dia antes.");
+    }
+
+    // Agendar para o dia do vencimento
+    DateTime scheduledOnDueDate = DateTime(
+      nextDueDate.year,
+      nextDueDate.month,
+      nextDueDate.day,
+      9,
+      0,
+    );
+    if (scheduledOnDueDate.isAfter(DateTime.now())) {
+      await NotificationService().scheduleNotification(
+        id: generateUniqueNotificationId(
+          molde.id,
+          reminderTypeSuffix: "_due_date",
+        ),
+        title: 'CONTA MENSAL VENCE HOJE!',
+        body:
+            'Sua conta mensal "${molde.name}" vence hoje, ${DateFormat('dd/MM/yyyy').format(nextDueDate.toLocal())}!',
+        scheduledDateTime: scheduledOnDueDate,
+        payload: molde.id,
+      );
+      debugPrint("Agendado: Molde '${molde.name}' no dia do vencimento.");
+    }
+  }
+
   void _showAddAccountDialog() {
-    // ... (seu código _showAddAccountDialog existente, mas no onPressed de 'Adicionar', chame a nova função)
-    // Cole seu código do diálogo aqui, e eu mostrarei a modificação no onPressed.
-    // Por enquanto, vou colocar o trecho modificado do onPressed:
     _accountNameController.clear();
     _accountValueController.clear();
     _recurringDayController.clear();
@@ -279,7 +383,6 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
             TextButton(
               child: const Text('Adicionar'),
               onPressed: () async {
-                // ... (sua lógica de validação existente)
                 if (_accountNameController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(dialogPopupContext).showSnackBar(
                     const SnackBar(
@@ -317,22 +420,24 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
 
                 DateTime effectiveDueDateForSave = _dialogSelectedDueDate;
                 if (_isRecurringDialog && recurringDay != null) {
-                  DateTime now = DateTime.now();
-                  DateTime potentialDate = DateTime(
+                  // Ao criar um molde, a dueDate inicial deve ser a do primeiro ciclo válido.
+                  // Se o dia recorrente já passou no mês da data selecionada, avança para o próximo mês.
+                  DateTime potentialDateThisMonth = DateTime(
                     _dialogSelectedDueDate.year,
                     _dialogSelectedDueDate.month,
                     recurringDay,
                   );
-                  if (potentialDate.isBefore(_dialogSelectedDueDate) &&
-                      potentialDate.day < _dialogSelectedDueDate.day &&
-                      _dialogSelectedDueDate.month == potentialDate.month) {
+                  if (potentialDateThisMonth.isBefore(DateTime.now()) &&
+                      _dialogSelectedDueDate.month == DateTime.now().month &&
+                      _dialogSelectedDueDate.year == DateTime.now().year) {
                     effectiveDueDateForSave = DateTime(
                       _dialogSelectedDueDate.year,
-                      _dialogSelectedDueDate.month + 1,
+                      _dialogSelectedDueDate.month +
+                          1, // Avança para o próximo mês
                       recurringDay,
                     );
                   } else {
-                    effectiveDueDateForSave = potentialDate;
+                    effectiveDueDateForSave = potentialDateThisMonth;
                   }
                 }
 
@@ -352,7 +457,8 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                 final accountToSave = Account(
                   categoryId: widget.category.id,
                   name: _accountNameController.text.trim(),
-                  dueDate: effectiveDueDateForSave,
+                  dueDate:
+                      effectiveDueDateForSave, // Data de vencimento inicial
                   value:
                       _accountValueController.text.trim().isEmpty
                           ? null
@@ -362,12 +468,14 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                               '.',
                             ),
                           ),
-                  isPaid: false,
+                  isPaid: false, // Nova conta nunca começa como paga
                   userId: userId,
-                  createdAt: null,
+                  createdAt: null, // Será definido pelo serverTimestamp()
                   isRecurring: _isRecurringDialog,
                   recurringDayOfMonth: recurringDay,
-                  lastPaidDate: null,
+                  lastPaidDate:
+                      null, // Nova conta recorrente não tem último pagamento
+                  paidDate: null, // Nova conta não foi paga ainda
                 );
 
                 try {
@@ -381,8 +489,8 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
 
                   if (mounted) Navigator.of(dialogPopupContext).pop();
 
-                  // <<< CHAMAR A NOVA FUNÇÃO DE AGENDAMENTO >>>
-                  await _scheduleDailyRemindersUntilDueDate(
+                  // Agendar lembretes para a nova conta
+                  await _scheduleOrCancelAccountNotifications(
                     accountToSave.copyWith(id: firestoreAccountId),
                   );
                 } catch (e) {
@@ -402,9 +510,8 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
   }
 
   void _showEditAccountDialog(Account accountToEditOriginal) {
-    // ... (seu código _showEditAccountDialog existente, mas no onPressed de 'Salvar', chame a nova função)
-    // Cole seu código do diálogo aqui, e eu mostrarei a modificação no onPressed.
-    // Por enquanto, vou colocar o trecho modificado do onPressed:
+    // É importante criar uma cópia mutável para editar no diálogo,
+    // pois 'accountToEditOriginal' é final.
     Account accountToEdit = accountToEditOriginal.copyWith();
 
     _accountNameController.text = accountToEdit.name;
@@ -524,7 +631,6 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
             TextButton(
               child: const Text('Salvar'),
               onPressed: () async {
-                // ... (sua lógica de validação)
                 if (_accountNameController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(dialogPopupContext).showSnackBar(
                     const SnackBar(
@@ -581,6 +687,12 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                           ),
                   isRecurring: _isRecurringDialog,
                   recurringDayOfMonth: _isRecurringDialog ? recurringDay : null,
+                  // Se a conta for alterada para não recorrente, e estava paga,
+                  // ou se a data mudou para o futuro, etc.
+                  // Seu paidDate deve ser resetado se ela se tornar 'não paga'
+                  isPaid: accountToEdit.isPaid, // Mantém o status pago/não pago
+                  paidDate:
+                      accountToEdit.paidDate, // Mantém a data de pagamento
                 );
 
                 try {
@@ -591,6 +703,13 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                     'isRecurring': updatedAccountData.isRecurring,
                     'recurringDayOfMonth':
                         updatedAccountData.recurringDayOfMonth,
+                    // Garante que paidDate e isPaid não sejam perdidos ou sobrescritos aqui,
+                    // a menos que haja uma lógica específica de edição.
+                    'isPaid': updatedAccountData.isPaid,
+                    'paidDate':
+                        updatedAccountData.paidDate != null
+                            ? Timestamp.fromDate(updatedAccountData.paidDate!)
+                            : null,
                   };
 
                   await FirebaseFirestore.instance
@@ -601,8 +720,10 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                   print("Conta ${accountToEdit.id} atualizada.");
                   if (mounted) Navigator.of(dialogPopupContext).pop();
 
-                  // <<< CHAMAR A NOVA FUNÇÃO DE AGENDAMENTO >>>
-                  await _scheduleDailyRemindersUntilDueDate(updatedAccountData);
+                  // Reagendar lembretes para a conta atualizada
+                  await _scheduleOrCancelAccountNotifications(
+                    updatedAccountData,
+                  );
                 } catch (e) {
                   print('Erro ao atualizar conta: $e');
                   if (mounted) {
@@ -619,6 +740,7 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
     );
   }
 
+  // --- Função _showAccountOptions: Onde a lógica de marcar como paga está ---
   void _showAccountOptions(Account account) {
     showModalBottomSheet(
       context: context,
@@ -646,81 +768,145 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                 ),
                 onTap: () async {
                   Navigator.pop(bottomSheetContext);
-                  Account updatedAccount = account.copyWith(
-                    isPaid: !account.isPaid,
-                  );
 
-                  if (updatedAccount.isPaid && updatedAccount.isRecurring) {
-                    DateTime? nextDueDate =
-                        updatedAccount.nextPotentialDueDateForRecurringMolde;
-                    if (nextDueDate != null) {
-                      Account nextRecurringInstance = updatedAccount.copyWith(
-                        id: uuid.v4(),
-                        isPaid: false,
-                        dueDate: nextDueDate,
-                        lastPaidDate: account.dueDate,
-                        createdAt: null,
+                  // Se a conta for marcada como PAGA
+                  if (!account.isPaid) {
+                    if (account.isRecurring) {
+                      // Se for recorrente e marcada como paga:
+                      // 1. Cria uma NOVA instância paga (única)
+                      DateTime? nextDueDateForInstance =
+                          account.nextPotentialDueDateForRecurringMolde;
+                      if (nextDueDateForInstance == null) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Erro: Não foi possível calcular a próxima data para a recorrência.',
+                              ),
+                            ),
+                          );
+                        }
+                        return;
+                      }
+
+                      Account newPaidInstance = Account(
+                        categoryId: account.categoryId,
+                        name: account.name,
+                        dueDate:
+                            account
+                                .dueDate, // Mantém a dueDate do molde para a instância
+                        value: account.value,
+                        isPaid: true,
+                        userId: account.userId,
+                        createdAt:
+                            DateTime.now(), // Data de criação da instância
+                        isRecurring: false, // Instância paga é única
+                        recurringDayOfMonth: null,
+                        lastPaidDate: null,
+                        paidDate:
+                            DateTime.now(), // Data em que esta instância foi paga
                       );
-                      // Salvar a nova instância recorrente
+
                       DocumentReference newDocRef = await FirebaseFirestore
                           .instance
                           .collection('accounts')
-                          .add(nextRecurringInstance.toFirestore());
+                          .add(newPaidInstance.toFirestore());
                       print(
-                        "Próxima ocorrência recorrente criada para ${nextRecurringInstance.name} com ID: ${newDocRef.id}",
-                      );
-                      // Agendar para a nova instância
-                      await _scheduleDailyRemindersUntilDueDate(
-                        nextRecurringInstance.copyWith(id: newDocRef.id),
+                        "Nova instância recorrente paga criada com ID: ${newDocRef.id}",
                       );
 
-                      // Marcar a instância atual como paga e não mais o "molde" da recorrência principal
-                      updatedAccount = updatedAccount.copyWith(
-                        isRecurring: false,
-                        recurringDayOfMonth: null,
-                      );
+                      // 2. Atualiza o MOLDE ORIGINAL recorrente
+                      await FirebaseFirestore.instance
+                          .collection('accounts')
+                          .doc(account.id)
+                          .update({
+                            'lastPaidDate': Timestamp.fromDate(
+                              newPaidInstance.paidDate!,
+                            ), // Atualiza o último pagamento do molde
+                            // Garante que o molde original NÃO seja marcado como isPaid: true aqui
+                            // ou que sua dueDate base reflita o próximo ciclo se for a lógica.
+                            // Para moldes, geralmente isPaid permanece false.
+                            // 'isPaid': false, // O molde recorrente principal não é "pago"
+                          });
+
+                      // Agendar notificações para a PRÓXIMA ocorrência do MOLDE ORIGINAL
+                      await _scheduleOrCancelAccountNotifications(
+                        account,
+                      ); // Passa o molde original para reagendar
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Conta recorrente "${account.name}" marcada como paga e próxima instância criada.',
+                            ),
+                          ),
+                        );
+                      }
                     } else {
-                      print(
-                        "Não foi possível calcular a próxima data para a conta recorrente paga: ${account.name}",
-                      );
+                      // Se for uma conta única (não recorrente) e marcada como paga:
+                      await FirebaseFirestore.instance
+                          .collection('accounts')
+                          .doc(account.id)
+                          .update({
+                            'isPaid': true,
+                            'paidDate': Timestamp.fromDate(
+                              DateTime.now(),
+                            ), // Define paidDate para contas únicas
+                          });
+                      print("Conta ${account.name} marcada como paga.");
+                      await _scheduleOrCancelAccountNotifications(
+                        account.copyWith(isPaid: true),
+                      ); // Cancela as notificações
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Conta "${account.name}" marcada como paga.',
+                            ),
+                          ),
+                        );
+                      }
                     }
-                  }
-
-                  try {
-                    // Atualizar apenas os campos relevantes da conta original
-                    await FirebaseFirestore.instance
-                        .collection('accounts')
-                        .doc(account.id)
-                        .update({
-                          'isPaid': updatedAccount.isPaid,
-                          'isRecurring':
-                              updatedAccount
-                                  .isRecurring, // Pode ter sido alterado se a recorrente foi paga
-                          'recurringDayOfMonth':
-                              updatedAccount
-                                  .recurringDayOfMonth, // Pode ter sido alterado
-                          'lastPaidDate':
-                              updatedAccount.isPaid
-                                  ? Timestamp.fromDate(account.dueDate)
-                                  : (updatedAccount.lastPaidDate != null
-                                      ? Timestamp.fromDate(
-                                        updatedAccount.lastPaidDate!,
-                                      )
-                                      : null),
-                        });
-
-                    print(
-                      "Status de pagamento da conta ${account.id} atualizado para ${updatedAccount.isPaid}",
-                    );
-                    // Chamar com o objeto 'updatedAccount' que reflete o novo status de isPaid
-                    await _scheduleDailyRemindersUntilDueDate(updatedAccount);
-                  } catch (e) {
-                    print("Erro ao atualizar status de pagamento: $e");
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erro ao atualizar pagamento: $e'),
-                      ),
-                    );
+                  } else {
+                    // Se a conta for marcada como NÃO PAGA (reverte o status)
+                    // (Isso só deve acontecer para contas ÚNICAS que foram acidentalmente marcadas como pagas)
+                    if (account.isRecurring) {
+                      // Não deveria ser possível "despagar" um molde recorrente dessa forma.
+                      // Se for uma instância paga de um recorrente, essa instância não aparece aqui.
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Não é possível desmarcar uma conta recorrente como não paga diretamente.',
+                            ),
+                          ),
+                        );
+                      }
+                      return;
+                    } else {
+                      // Se for uma conta única e marcada como não paga
+                      await FirebaseFirestore.instance
+                          .collection('accounts')
+                          .doc(account.id)
+                          .update({
+                            'isPaid': false,
+                            'paidDate': null, // Limpa paidDate
+                          });
+                      print("Conta ${account.name} marcada como não paga.");
+                      await _scheduleOrCancelAccountNotifications(
+                        account.copyWith(isPaid: false),
+                      ); // Reagenda notificações
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Conta "${account.name}" marcada como não paga.',
+                            ),
+                          ),
+                        );
+                      }
+                    }
                   }
                 },
               ),
@@ -759,11 +945,10 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                 try {
                   String accountId = account.id;
 
-                  // <<< CHAMAR A NOVA FUNÇÃO DE AGENDAMENTO/CANCELAMENTO >>>
-                  // Para cancelar, passamos a conta como se estivesse paga.
-                  await _scheduleDailyRemindersUntilDueDate(
+                  // Cancela todas as notificações relacionadas a esta conta antes de excluí-la
+                  await _scheduleOrCancelAccountNotifications(
                     account.copyWith(isPaid: true),
-                  );
+                  ); // Passa como paga para cancelar tudo
 
                   await FirebaseFirestore.instance
                       .collection('accounts')
@@ -801,6 +986,8 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                     .collection('accounts')
                     .where('categoryId', isEqualTo: widget.category.id)
                     .where('userId', isEqualTo: currentUserId)
+                    // Ordena por isPaid primeiro (não pagas no topo), depois por dueDate
+                    .orderBy('isPaid')
                     .orderBy('dueDate')
                     .snapshots(),
         builder: (
@@ -825,19 +1012,45 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
             );
           }
 
+          // Filtrar as contas para exibir:
+          // Apenas contas não pagas E os moldes recorrentes (isRecurring: true)
+          // Isso evita que instâncias pagas (que são isPaid:true, isRecurring:false) apareçam na lista principal
+          final List<Account> accountsToShow =
+              accountsFromFirestore
+                  .map((doc) => Account.fromFirestore(doc))
+                  .where(
+                    (account) =>
+                        !account.isPaid || // Exibe contas que não estão pagas
+                        (account.isRecurring &&
+                            !account
+                                .isPaid), // Exibe moldes recorrentes que não foram pagos ainda (se a dueDate base não os marca como 'pago')
+                  )
+                  .toList();
+
+          // Se a conta já está paga e não é recorrente (é uma instância paga), ela não deve aparecer nessa lista
+          // Isso garante que você veja apenas o MOLDE da recorrente, e não as instâncias pagas aqui.
+          accountsToShow.removeWhere(
+            (account) => account.isPaid && !account.isRecurring,
+          );
+
+          if (accountsToShow.isEmpty) {
+            return const Center(
+              child: Text('Nenhuma conta a vencer nesta categoria.'),
+            );
+          }
+
           return ListView.builder(
-            itemCount: accountsFromFirestore.length,
+            itemCount: accountsToShow.length,
             itemBuilder: (context, index) {
               try {
-                final DocumentSnapshot<Map<String, dynamic>> document =
-                    accountsFromFirestore[index];
-                final Account account = Account.fromFirestore(document);
+                final Account account =
+                    accountsToShow[index]; // Use a lista filtrada
 
                 String subtitleText =
                     'Vencimento: ${DateFormat('dd/MM/yyyy').format(account.dueDate.toLocal())}';
                 if (account.value != null) {
                   subtitleText +=
-                      ' - R\$ ${account.value!.toStringAsFixed(2).replaceAll('.', ',')}';
+                      ' - R\$ ${NumberFormat.currency(locale: 'pt_BR', symbol: '').format(account.value ?? 0.0)}';
                 }
 
                 Color itemColor = Colors.transparent;
@@ -849,24 +1062,33 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                   account.dueDate.day,
                 );
 
+                // Lógica de cor para contas a vencer
                 if (!account.isPaid) {
                   if (dueDateDayOnly.isAtSameMomentAs(today)) {
-                    itemColor = Colors.red.withOpacity(0.3);
+                    itemColor = Colors.red.withOpacity(0.3); // Vence hoje
                   } else if (dueDateDayOnly.isBefore(today)) {
-                    itemColor = Colors.grey.withOpacity(0.3);
+                    itemColor = Colors.grey.withOpacity(0.3); // Atrasada
                   }
                 }
+                // Se a conta está paga, mas não é recorrente, ela não deveria estar aqui devido ao filtro.
+                // Se é recorrente e está paga, também não deveria estar aqui (o molde não fica pago).
 
                 String statusText = "";
-                if (account.isPaid && !account.isRecurring) {
+                // Status para contas exibidas na CategoryAccountsPage (a vencer ou moldes recorrentes)
+                if (account.isRecurring) {
+                  if (account.lastPaidDate != null) {
+                    statusText =
+                        ' (Últ. Pgto: ${DateFormat('dd/MM/yyyy').format(account.lastPaidDate!.toLocal())})';
+                  } else {
+                    statusText = " (Mensal)"; // Se recorrente e nunca paga
+                  }
+                } else if (account.isPaid) {
+                  // Esta condição só deve ser alcançada se uma conta única paga for exibida por algum motivo,
+                  // mas a intenção é que contas pagas únicas não apareçam aqui.
                   statusText = ' (PAGO)';
-                } else if (account.isRecurring &&
-                    account.lastPaidDate != null) {
-                  statusText =
-                      ' (Últ. Pgto: ${DateFormat('dd/MM/yyyy').format(account.lastPaidDate!)})';
-                } else if (account.isRecurring) {
-                  statusText =
-                      " (Mensal - Dia ${account.recurringDayOfMonth ?? 'N/A'})";
+                  itemColor = Colors.green.withOpacity(
+                    0.3,
+                  ); // Cor verde para pago
                 }
 
                 return Card(
@@ -879,13 +1101,10 @@ class _CategoryAccountsPageState extends State<CategoryAccountsPage> {
                     title: Text(account.name + statusText),
                     subtitle: Text(subtitleText),
                     leading: Icon(
-                      (account.isPaid && !account.isRecurring)
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
+                      // Ícone para contas recorrentes ou a vencer
+                      account.isRecurring ? Icons.repeat : Icons.event_note,
                       color:
-                          (account.isPaid && !account.isRecurring)
-                              ? Colors.green
-                              : Colors.blueGrey,
+                          account.isRecurring ? Colors.orange : Colors.blueGrey,
                     ),
                     trailing: IconButton(
                       icon: const Icon(Icons.more_vert),

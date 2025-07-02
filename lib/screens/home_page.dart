@@ -3,13 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_fonts/google_fonts.dart'; // Importado GoogleFonts
+import 'package:google_fonts/google_fonts.dart';
+
 import '../models/category.dart';
-import '../models/account.dart'; // Importado o modelo Account
-import '../services/notification_service.dart'; // Serviço de notificação
+import '../models/account.dart';
+import '../services/notification_service.dart';
 import 'category_accounts_page.dart';
 import 'reports_page.dart';
-// import '../widgets/custom_drawer.dart'; // Se não estiver mais usando, pode remover esta linha.
+import 'edit_profile_page.dart'; // Importa a tela de edição de perfil
 
 var uuid = Uuid();
 
@@ -114,6 +115,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
     });
     _initializeUpcomingAccountsStream();
+    _loadInitialPaidAccounts(); // Chamar aqui para carregar as contas pagas ao iniciar a Home
   }
 
   void _manageBlinkControllerForSelection() {
@@ -334,8 +336,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             TextButton(
               child: const Text('Cancelar'),
               onPressed: () {
-                _categoryNameController.clear();
                 Navigator.of(context).pop();
+                _categoryNameController.clear();
               },
             ),
             TextButton(
@@ -488,7 +490,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return AlertDialog(
           title: const Text('Excluir Categoria'),
           content: Text(
-            'Tem certeza que deseja excluir a categoria "${category.name}"? As contas associadas perderão a referência da categoria.',
+            'Tem certeza que deseja excluir a categoria "${category.name}"? Todas as contas associadas a esta categoria também serão permanentemente excluídas.', // Texto de aviso alterado
           ),
           actions: <Widget>[
             TextButton(
@@ -496,42 +498,59 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               onPressed: () => Navigator.of(context).pop(),
             ),
             TextButton(
-              child: const Text('Excluir'),
+              child: const Text(
+                'Excluir',
+                style: TextStyle(color: Colors.red),
+              ), // Destaca o botão de excluir
               onPressed: () async {
                 try {
+                  // 1. Busca todas as contas que pertencem a esta categoria
                   QuerySnapshot accountsSnapshot =
                       await FirebaseFirestore.instance
                           .collection('accounts')
                           .where('categoryId', isEqualTo: category.id)
                           .get();
+
                   WriteBatch batch = FirebaseFirestore.instance.batch();
+
+                  // 2. Adiciona cada conta encontrada ao batch para exclusão
                   for (DocumentSnapshot doc in accountsSnapshot.docs) {
-                    batch.update(doc.reference, {'categoryId': ''});
+                    batch.delete(
+                      doc.reference,
+                    ); // MUDANÇA AQUI: Deleta o documento da conta
                   }
+
+                  // 3. Executa o batch de exclusão das contas
                   await batch.commit();
+
+                  // 4. Exclui a categoria em si
                   await FirebaseFirestore.instance
                       .collection('categories')
                       .doc(category.id)
                       .delete();
+
                   if (mounted) {
-                    Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
+                      // Use ScaffoldMessenger
                       SnackBar(
                         content: Text(
-                          'Categoria "${category.name}" excluída e contas desassociadas.',
+                          'Categoria "${category.name}" e todas as contas associadas foram excluídas.', // Mensagem de sucesso alterada
                         ),
                       ),
                     );
+                    Navigator.of(context).pop();
                   }
                 } catch (e) {
-                  print('Erro ao excluir categoria: $e');
+                  print('Erro ao excluir categoria e contas: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
+                      // Use ScaffoldMessenger
                       SnackBar(
-                        content: Text('Erro ao excluir categoria: $e'),
+                        content: Text('Erro ao excluir categoria e contas: $e'),
                         backgroundColor: Colors.red,
                       ),
                     );
+                    Navigator.of(context).pop();
                   }
                 }
               },
@@ -545,11 +564,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _loadInitialPaidAccounts() async {
     print("--- Iniciando _loadInitialPaidAccounts ---");
     try {
+      // Ajuste na consulta: remova a condição isRecurring: false
       QuerySnapshot paidSnapshot =
           await FirebaseFirestore.instance
               .collection('accounts')
-              .where('isPaid', isEqualTo: true)
-              .where('isRecurring', isEqualTo: false)
+              .where(
+                'isPaid',
+                isEqualTo: true,
+              ) // Busca todas as contas marcadas como pagas
               .get();
 
       print(
@@ -575,8 +597,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           );
           _paidAccounts.forEach(
             (acc) => print(
-              "  >> Na lista _paidAccounts: ${acc.name}, Valor: ${acc.value}, Paga: ${acc.isPaid}, Rec: ${acc.isRecurring}",
-            ),
+              "  >> Na lista _paidAccounts: ${acc.name}, Valor: ${acc.value}, Paga: ${acc.isPaid}, Rec: ${acc.isRecurring}, PaidDate: ${acc.paidDate}",
+            ), // Adicionei PaidDate no print para depuração
           );
         });
       }
@@ -604,7 +626,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
     await NotificationService().cancelNotification(
-      generateUniqueNotificationId(molde.id, reminderTypeSuffix: "_due_date"),
+      generateUniqueNotificationId(
+        molde.id,
+        reminderTypeSuffix: "_due_date",
+      ), // CORRIGIDO AQUI
     );
 
     DateTime? proximoVencimento = molde.nextPotentialDueDateForRecurringMolde;
@@ -705,10 +730,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             );
         }
       } else {
+        // --- INÍCIO DA ALTERAÇÃO IMPORTANTE AQUI PARA paidDate ---
         DocumentReference accountRef = FirebaseFirestore.instance
             .collection('accounts')
             .doc(accountOriginal.id);
-        batch.update(accountRef, {'isPaid': true});
+        batch.update(accountRef, {
+          'isPaid': true,
+          'paidDate': Timestamp.fromDate(
+            DateTime.now(),
+          ), // <-- ADICIONADO: Define paidDate para contas não recorrentes
+        });
+        // --- FIM DA ALTERAÇÃO IMPORTANTE AQUI ---
+
         await NotificationService().cancelNotification(
           generateUniqueNotificationId(
             accountOriginal.id,
@@ -937,680 +970,807 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       59,
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title:
-            _selectionMode
-                ? Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: _clearSelection,
-                    ),
-                    Expanded(
-                      child: Text(
-                        '${_selectedAccounts.length} selecionado${_selectedAccounts.length > 1 ? 's' : ''}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                    ),
-                    const SizedBox(width: 48),
-                  ],
-                )
-                : const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.credit_card),
-                    SizedBox(width: 8),
-                    Text(
-                      'LEMBREI DE PAGAR',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-        centerTitle: true,
-      ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: <Widget>[
-            // DrawerHeader AGORA EXIBINDO INFORMAÇÕES DO USUÁRIO
-            DrawerHeader(
-              padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade400, // Fundo azul suave
-              ),
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start, // Alinhado à esquerda para as informações do usuário
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundColor: Colors.white,
-                        backgroundImage:
-                            FirebaseAuth.instance.currentUser?.photoURL != null
-                                ? NetworkImage(
-                                  FirebaseAuth.instance.currentUser!.photoURL!,
-                                )
-                                : null,
-                        child:
-                            FirebaseAuth.instance.currentUser?.photoURL == null
-                                ? Icon(
-                                  Icons.person,
-                                  size: 28,
-                                  color: Colors.blue[400],
-                                )
-                                : null,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+    // StreamBuilder para observar o estado do usuário (para o DrawerHeader)
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      builder: (context, userSnapshot) {
+        User? currentUser = userSnapshot.data; // Pega o usuário mais atualizado
+
+        // FutureBuilder para carregar o ícone de avatar customizado (se não houver photoURL)
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future:
+              currentUser != null
+                  ? FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(currentUser.uid)
+                      .get()
+                  : Future.value(
+                    null,
+                  ), // Se não há usuário, não busca no Firestore
+          builder: (context, userDocSnapshot) {
+            IconData? customAvatarIcon;
+            if (userDocSnapshot.hasData &&
+                userDocSnapshot.data != null &&
+                userDocSnapshot.data!.exists) {
+              Map<String, dynamic> userData = userDocSnapshot.data!.data()!;
+              int? codePoint = userData['avatarIconCodePoint'];
+              String? fontFamily = userData['avatarIconFontFamily'];
+              String? fontPackage =
+                  userData['avatarIconFontPackage']; // Corrigido: fontPackage para avatarIconFontPackage
+
+              if (codePoint != null && fontFamily != null) {
+                customAvatarIcon = IconData(
+                  codePoint,
+                  fontFamily: fontFamily,
+                  fontPackage: fontPackage,
+                );
+              }
+            }
+
+            return Scaffold(
+              appBar: AppBar(
+                title:
+                    _selectionMode
+                        ? Row(
                           children: [
-                            Text(
-                              FirebaseAuth.instance.currentUser?.displayName ??
-                                  'Usuário sem nome',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: _clearSelection,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              FirebaseAuth.instance.currentUser?.email ??
-                                  'email@exemplo.com',
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                color: Colors.white70,
+                            Expanded(
+                              child: Text(
+                                '${_selectedAccounts.length} selecionado${_selectedAccounts.length > 1 ? 's' : ''}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 18),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(width: 48),
+                          ],
+                        )
+                        : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.credit_card),
+                            SizedBox(width: 8),
+                            Text(
+                              'LEMBREI DE PAGAR',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                centerTitle: true,
               ),
-            ),
-
-            // Fim do DrawerHeader ajustado
-            ListTile(
-              leading: Icon(Icons.home, color: Colors.blue[600]),
-              title: Text(
-                'Início',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[800],
-                ),
-              ),
-              onTap: () => Navigator.pop(context),
-            ),
-            StreamBuilder<QuerySnapshot>(
-              stream: _categoriesStream,
-              builder: (
-                BuildContext context,
-                AsyncSnapshot<QuerySnapshot> snapshot,
-              ) {
-                if (snapshot.hasError) {
-                  return ListTile(
-                    title: Text(
-                      'Erro ao carregar categorias',
-                      style: GoogleFonts.poppins(),
-                    ),
-                  );
-                }
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                _categories.clear();
-                final categoriesFromFirestore = snapshot.data!.docs;
-                for (var document in categoriesFromFirestore) {
-                  if (document.data() != null) {
-                    Map<String, dynamic> data =
-                        document.data()! as Map<String, dynamic>;
-                    final categoryName = data['name'] as String?;
-                    final iconCodePoint = data['iconCodePoint'] as int?;
-                    final iconFontFamily = data['iconFontFamily'] as String?;
-                    final iconFontPackage = data['iconFontPackage'] as String?;
-                    IconData? categoryIcon;
-                    if (iconCodePoint != null && iconFontFamily != null) {
-                      try {
-                        categoryIcon = IconData(
-                          iconCodePoint,
-                          fontFamily: iconFontFamily,
-                          fontPackage: iconFontPackage,
-                        );
-                      } catch (e) {}
-                    }
-                    _categories.add(
-                      Category(
-                        id: document.id,
-                        name: categoryName ?? 'Categoria Sem Nome',
-                        icon: categoryIcon,
+              drawer: Drawer(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: <Widget>[
+                    // DrawerHeader AGORA EXIBINDO INFORMAÇÕES DO USUÁRIO E BOTÃO DE EDIÇÃO
+                    DrawerHeader(
+                      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade400, // Fundo azul suave
                       ),
-                    );
-                  }
-                }
-                final allCategoryListTiles =
-                    _categories.map((category) {
-                      return ListTile(
-                        leading: Icon(
-                          category.icon ?? Icons.folder,
-                          size: 24,
-                          color: Colors.blue[600],
-                        ),
-                        title: Text(
-                          category.name.isNotEmpty
-                              ? (category.name[0].toUpperCase() +
-                                  category.name.substring(1).toLowerCase())
-                              : 'Categoria S/ Nome',
-                          style: GoogleFonts.poppins(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey[800],
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start, // Alinhado à esquerda para as informações do usuário
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Stack(
+                            // O Stack precisa envolver os elementos que se sobrepõem
+                            alignment:
+                                Alignment
+                                    .bottomRight, // Alinha os filhos não posicionados ao canto inferior direito
+                            children: [
+                              // Avatar (com imagem ou ícone)
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: Colors.white,
+                                backgroundImage:
+                                    currentUser?.photoURL != null
+                                        ? NetworkImage(currentUser!.photoURL!)
+                                        : null,
+                                child:
+                                    currentUser?.photoURL == null
+                                        ? Icon(
+                                          customAvatarIcon ??
+                                              Icons
+                                                  .person, // Usa o ícone customizado ou Icons.person como padrão
+                                          size: 28,
+                                          color: Colors.blue.shade400,
+                                        )
+                                        : null,
+                              ),
+                              // Botão de edição (canetinha) posicionado sobre o avatar
+                              Positioned(
+                                bottom:
+                                    -4, // Ajuste este valor para mover para cima ou para baixo
+                                right:
+                                    -4, // Ajuste este valor para mover para a esquerda ou para a direita
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.pop(context); // Fecha o drawer
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder:
+                                            (context) =>
+                                                const EditProfilePage(),
+                                      ),
+                                    ).then(
+                                      (_) => setState(() {}),
+                                    ); // Atualiza a Home após voltar
+                                  },
+                                  borderRadius: BorderRadius.circular(
+                                    15,
+                                  ), // Para o InkWell
+                                  child: Container(
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors
+                                              .blue
+                                              .shade700, // Cor de fundo da canetinha
+                                      borderRadius: BorderRadius.circular(15),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ), // Canetinha branca menor
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        trailing: IconButton(
-                          icon: Icon(Icons.more_vert, color: Colors.grey[600]),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _showCategoryOptions(category);
-                          },
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder:
-                                  (context) =>
-                                      CategoryAccountsPage(category: category),
+                          const SizedBox(
+                            height: 8,
+                          ), // Espaço entre o avatar e o nome/email
+                          Text(
+                            currentUser?.displayName ?? 'Usuário sem nome',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
-                          ).then((_) => setState(() {}));
-                        },
-                      );
-                    }).toList();
-                return ExpansionTile(
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 0,
-                  ),
-                  childrenPadding: EdgeInsets.zero,
-                  iconColor: Colors.blue[600],
-                  collapsedIconColor: Colors.blue[600],
-                  leading: Icon(Icons.category, color: Colors.blue[600]),
-                  title: Text(
-                    'Categorias',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey[800],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            currentUser?.email ?? 'email@exemplo.com',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: Colors.white70,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  initiallyExpanded: true,
-                  children: [
-                    if (_categories.isEmpty)
-                      ListTile(
-                        title: Text(
-                          'Nenhuma categoria adicionada.',
-                          style: GoogleFonts.poppins(),
-                        ),
-                      )
-                    else
-                      Container(
-                        constraints: BoxConstraints(
-                          maxHeight:
-                              _categories.length > maxVisibleCategoriesInDrawer
-                                  ? categoriesDrawerMaxHeight
-                                  : _categories.length *
-                                      drawerCategoryListItemHeightEstimate,
-                        ),
-                        child: ListView(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.zero,
-                          children: allCategoryListTiles,
+
+                    // Fim do DrawerHeader ajustado
+                    ListTile(
+                      leading: Icon(Icons.home, color: Colors.blue[600]),
+                      title: Text(
+                        'Início',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[800],
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.show_chart, color: Colors.blue[600]),
-              title: Text(
-                'Relatórios',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[800],
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder:
-                        (context) => ReportsPage(
-                          paidAccounts: _paidAccounts,
-                          categories: _categories,
-                        ),
-                  ),
-                ).then((_) => setState(() {}));
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.info_outline, color: Colors.blue[600]),
-              title: Text(
-                'Sobre',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[800],
-                ),
-              ),
-              onTap: () => Navigator.pop(context),
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.exit_to_app, color: Colors.red[400]),
-              title: Text(
-                'Sair',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.red[400],
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _signOut();
-              },
-            ),
-          ],
-        ),
-      ),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: MolduraPainter(
-                  startColor: Colors.blue.shade300,
-                  endColor: Colors.blue.shade800,
-                  waveHeight: topFrameHeight,
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                SizedBox(height: topFrameHeight),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.notifications_active,
-                        color:
-                            _selectionMode && _selectedAccounts.isNotEmpty
-                                ? Colors.deepOrange.shade800
-                                : Colors.deepOrange,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Contas Próximas a Vencer',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          color:
-                              _selectionMode && _selectedAccounts.isNotEmpty
-                                  ? Colors.black
-                                  : Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _upcomingAccountsStream,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError)
-                        return Center(child: Text('Erro: ${snapshot.error}'));
-                      if (snapshot.connectionState == ConnectionState.waiting)
-                        return const Center(child: CircularProgressIndicator());
-                      final List<Account> allAccountsFromStream =
-                          snapshot.data?.docs
-                              .map((doc) => Account.fromFirestore(doc))
-                              .toList() ??
-                          [];
-                      List<Account> accountsToShow = [];
-                      for (var accountOriginal in allAccountsFromStream) {
-                        if (!accountOriginal.isRecurring) {
-                          if (!accountOriginal.isPaid &&
-                              !accountOriginal.dueDate.isBefore(nowOnly) &&
-                              !accountOriginal.dueDate.isAfter(
-                                tenDaysFromTodayEnd,
-                              )) {
-                            accountsToShow.add(accountOriginal);
-                          }
-                        } else {
-                          DateTime? nextDueDate =
-                              accountOriginal
-                                  .nextPotentialDueDateForRecurringMolde;
-                          if (nextDueDate != null &&
-                              !nextDueDate.isBefore(nowOnly) &&
-                              !nextDueDate.isAfter(tenDaysFromTodayEnd)) {
-                            accountsToShow.add(
-                              accountOriginal.copyWith(
-                                dueDate: nextDueDate,
-                                isPaid: false,
+                      onTap: () => Navigator.pop(context),
+                    ),
+
+                    // O ListTile 'Editar Perfil / Avatar' FOI REMOVIDO DAQUI
+                    // Ele agora é acessado diretamente pelo botão de edição no DrawerHeader.
+                    StreamBuilder<QuerySnapshot>(
+                      stream: _categoriesStream,
+                      builder: (
+                        BuildContext context,
+                        AsyncSnapshot<QuerySnapshot> snapshot,
+                      ) {
+                        if (snapshot.hasError) {
+                          return ListTile(
+                            title: Text(
+                              'Erro ao carregar categorias',
+                              style: GoogleFonts.poppins(),
+                            ),
+                          );
+                        }
+                        if (snapshot.connectionState == ConnectionState.waiting)
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        _categories.clear();
+                        final categoriesFromFirestore = snapshot.data!.docs;
+                        for (var document in categoriesFromFirestore) {
+                          if (document.data() != null) {
+                            Map<String, dynamic> data =
+                                document.data()! as Map<String, dynamic>;
+                            final categoryName = data['name'] as String?;
+                            final iconCodePoint = data['iconCodePoint'] as int?;
+                            final iconFontFamily =
+                                data['iconFontFamily'] as String?;
+                            final iconFontPackage =
+                                data['iconFontPackage']
+                                    as String?; // Corrigido aqui
+                            IconData? categoryIcon;
+                            if (iconCodePoint != null &&
+                                iconFontFamily != null) {
+                              try {
+                                categoryIcon = IconData(
+                                  iconCodePoint,
+                                  fontFamily: iconFontFamily,
+                                  fontPackage: iconFontPackage,
+                                );
+                              } catch (e) {
+                                // Em caso de erro ao criar IconData, use um ícone padrão
+                                categoryIcon = Icons.folder;
+                              }
+                            } else {
+                              categoryIcon =
+                                  Icons
+                                      .folder; // Ícone padrão se dados estiverem faltando
+                            }
+                            _categories.add(
+                              Category(
+                                id: document.id,
+                                name: categoryName ?? 'Categoria Sem Nome',
+                                icon: categoryIcon,
                               ),
                             );
                           }
                         }
-                      }
-                      accountsToShow.sort(
-                        (a, b) => a.dueDate.compareTo(b.dueDate),
-                      );
-                      if (accountsToShow.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            'Nenhuma conta próxima do vencimento.',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        );
-                      }
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16.0,
-                          vertical: 2.0,
-                        ),
-                        itemCount: accountsToShow.length,
-                        itemBuilder: (context, index) {
-                          final accountToDisplay = accountsToShow[index];
-                          final categoryIcon = _getCategoryIconForAccount(
-                            accountToDisplay.categoryId,
-                          );
-                          final accountDueDateOnly = DateTime(
-                            accountToDisplay.dueDate.year,
-                            accountToDisplay.dueDate.month,
-                            accountToDisplay.dueDate.day,
-                          );
-                          Account originalAccountForSelection =
-                              allAccountsFromStream.firstWhere(
-                                (a) => a.id == accountToDisplay.id,
-                                orElse: () => accountToDisplay,
-                              );
-                          bool isSelected = _selectedAccounts.any(
-                            (selectedAcc) =>
-                                selectedAcc.id ==
-                                originalAccountForSelection.id,
-                          );
-                          Color cardColor = Theme.of(context).cardColor;
-
-                          if (isSelected) {
-                            cardColor =
-                                (_selectionMode && _blinkController.isAnimating)
-                                    ? (_blinkColorAnimation.value ??
-                                        Colors.blue.shade200)
-                                    : Colors.blue.shade200;
-                          } else if (accountDueDateOnly.isAtSameMomentAs(
-                            nowOnly,
-                          )) {
-                            cardColor = Colors.red.shade200;
-                          } else if (accountDueDateOnly.isAtSameMomentAs(
-                            tomorrowOnly,
-                          )) {
-                            cardColor = Colors.yellow.shade300;
-                          }
-
-                          return GestureDetector(
-                            onLongPress:
-                                () => _toggleAccountSelection(
-                                  originalAccountForSelection,
-                                ),
-
-                            onTap: () {
-                              if (_selectionMode) {
-                                _toggleAccountSelection(
-                                  originalAccountForSelection,
-                                );
-                              } else {
-                                print(
-                                  "Clique simples em: ${accountToDisplay.name} (Modo de seleção DESATIVADO)",
-                                );
-                              }
-                            },
-                            child: Card(
-                              elevation: 1.0,
-                              margin: const EdgeInsets.symmetric(
-                                vertical: 2.5,
-                                horizontal: 8.0,
-                              ),
-                              color: cardColor,
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10.0,
-                                  vertical: 4.0,
-                                ),
+                        final allCategoryListTiles =
+                            _categories.map((category) {
+                              return ListTile(
                                 leading: Icon(
-                                  categoryIcon,
-                                  size: 20,
-                                  color:
-                                      isSelected
-                                          ? Colors.blue.shade800
-                                          : Colors.blue,
+                                  category.icon ?? Icons.folder,
+                                  size: 24,
+                                  color: Colors.blue[600],
                                 ),
                                 title: Text(
-                                  accountToDisplay.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  'Vence: ${DateFormat('dd/MM/yy').format(accountToDisplay.dueDate.toLocal())}' +
-                                      (accountToDisplay.value != null
-                                          ? ' - R\$ ${accountToDisplay.value!.toStringAsFixed(2)}'
-                                          : '') +
-                                      (accountToDisplay.isRecurring &&
-                                              !isSelected
-                                          ? ' (Mensal)'
-                                          : ''),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
+                                  category.name.isNotEmpty
+                                      ? (category.name[0].toUpperCase() +
+                                          category.name
+                                              .substring(1)
+                                              .toLowerCase())
+                                      : 'Categoria S/ Nome',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey[800],
                                   ),
                                 ),
-                              ),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    Icons.more_vert,
+                                    color: Colors.grey[600],
+                                  ),
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    _showCategoryOptions(category);
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder:
+                                          (context) => CategoryAccountsPage(
+                                            category: category,
+                                          ),
+                                    ),
+                                  ).then((_) => setState(() {}));
+                                },
+                              );
+                            }).toList();
+                        return ExpansionTile(
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 16.0,
+                            vertical: 0,
+                          ),
+                          childrenPadding: EdgeInsets.zero,
+                          iconColor: Colors.blue[600],
+                          collapsedIconColor: Colors.blue[600],
+                          leading: Icon(
+                            Icons.category,
+                            color: Colors.blue[600],
+                          ),
+                          title: Text(
+                            'Categorias',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey[800],
                             ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                if (!_selectionMode)
-                  Container(
-                    height: centralFloatingButtonsAreaHeight,
-                    padding: const EdgeInsets.symmetric(vertical: 5.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
+                          ),
+                          initiallyExpanded: true,
                           children: [
-                            FloatingActionButton(
-                              heroTag: 'vouPagarBtn_mainPage_col',
-                              onPressed: () {
-                                /* TODO: Ação */
-                              },
-                              backgroundColor: Colors.orange,
-                              shape: const CircleBorder(),
-                              child: const Icon(Icons.access_time),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Vou Pagar',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black.withOpacity(0.85),
+                            if (_categories.isEmpty)
+                              ListTile(
+                                title: Text(
+                                  'Nenhuma categoria adicionada.',
+                                  style: GoogleFonts.poppins(),
+                                ),
+                              )
+                            else
+                              Container(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      _categories.length >
+                                              maxVisibleCategoriesInDrawer
+                                          ? categoriesDrawerMaxHeight
+                                          : _categories.length *
+                                              drawerCategoryListItemHeightEstimate,
+                                ),
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  padding: EdgeInsets.zero,
+                                  children: allCategoryListTiles,
+                                ),
                               ),
-                            ),
                           ],
-                        ),
-                        const SizedBox(width: 120),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            FloatingActionButton(
-                              heroTag: 'pagoBtn_mainPage_col',
-                              onPressed: () {
-                                /* TODO: Ação */
-                              },
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              shape: const CircleBorder(),
-                              child: const Icon(Icons.check),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Pago',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black.withOpacity(0.85),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ),
-                SizedBox(height: bottomFrameHeight),
-              ],
-            ),
-
-            if (_selectionMode)
-              Positioned(
-                bottom: bottomFrameHeight + 5,
-                left: 20,
-                right: 20,
-                height: selectionActionButtonsAreaHeight,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).scaffoldBackgroundColor.withOpacity(0.97),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
+                    ListTile(
+                      leading: Icon(Icons.show_chart, color: Colors.blue[600]),
+                      title: Text(
+                        'Relatórios',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[800],
+                        ),
                       ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FloatingActionButton(
-                            heroTag: 'rescheduleSelectedBtn',
-                            onPressed:
-                                _selectedAccounts.isEmpty
-                                    ? null
-                                    : _scheduleNewDateForSelectedAccounts,
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                            mini: true,
-                            shape: const CircleBorder(),
-                            child: const Icon(Icons.calendar_today),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => ReportsPage(
+                                  paidAccounts: _paidAccounts,
+                                  categories: _categories,
+                                ),
                           ),
-                          const SizedBox(height: 1),
-                          Text(
-                            'Reagendar (${_selectedAccounts.length})',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
+                        ).then((_) => setState(() {}));
+                      },
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        Icons.info_outline,
+                        color: Colors.blue[600],
                       ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FloatingActionButton(
-                            heroTag: 'paySelectedBtn',
-                            onPressed:
-                                _selectedAccounts.isEmpty
-                                    ? null
-                                    : _markSelectedAccountsAsPaid,
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            mini: true,
-                            shape: const CircleBorder(),
-                            child: const Icon(Icons.check),
-                          ),
-                          const SizedBox(height: 1),
-                          Text(
-                            'Pago (${_selectedAccounts.length})',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
+                      title: Text(
+                        'Sobre',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[800],
+                        ),
                       ),
-                    ],
-                  ),
+                      onTap: () => Navigator.pop(context),
+                    ),
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(Icons.exit_to_app, color: Colors.red[400]),
+                      title: Text(
+                        'Sair',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.red[400],
+                        ),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _signOut();
+                      },
+                    ),
+                  ],
                 ),
               ),
-          ],
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(right: 16.0, bottom: 20.0),
-        child: FloatingActionButton(
-          heroTag: 'addCategoryBtn_mainPage',
-          onPressed: _showAddCategoryDialog,
-          backgroundColor: Colors.blue,
-          shape: const CircleBorder(),
-          child: const Icon(Icons.add),
-        ),
-      ),
+              body: SafeArea(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: MolduraPainter(
+                          startColor: Colors.blue.shade300,
+                          endColor: Colors.blue.shade800,
+                          waveHeight: topFrameHeight,
+                        ),
+                      ),
+                    ),
+                    Column(
+                      children: [
+                        SizedBox(height: topFrameHeight),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.notifications_active,
+                                color:
+                                    _selectionMode &&
+                                            _selectedAccounts.isNotEmpty
+                                        ? Colors.deepOrange.shade800
+                                        : Colors.deepOrange,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Contas Próximas a Vencer',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  color:
+                                      _selectionMode &&
+                                              _selectedAccounts.isNotEmpty
+                                          ? Colors.black
+                                          : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: StreamBuilder<
+                            QuerySnapshot<Map<String, dynamic>>
+                          >(
+                            stream: _upcomingAccountsStream,
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError)
+                                return Center(
+                                  child: Text('Erro: ${snapshot.error}'),
+                                );
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting)
+                                return const Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              final List<Account> allAccountsFromStream =
+                                  snapshot.data?.docs
+                                      .map((doc) => Account.fromFirestore(doc))
+                                      .toList() ??
+                                  [];
+                              List<Account> accountsToShow = [];
+                              for (var accountOriginal
+                                  in allAccountsFromStream) {
+                                if (!accountOriginal.isRecurring) {
+                                  if (!accountOriginal.isPaid &&
+                                      !accountOriginal.dueDate.isBefore(
+                                        nowOnly,
+                                      ) &&
+                                      !accountOriginal.dueDate.isAfter(
+                                        tenDaysFromTodayEnd,
+                                      )) {
+                                    accountsToShow.add(accountOriginal);
+                                  }
+                                } else {
+                                  DateTime? nextDueDate =
+                                      accountOriginal
+                                          .nextPotentialDueDateForRecurringMolde;
+                                  if (nextDueDate != null &&
+                                      !nextDueDate.isBefore(nowOnly) &&
+                                      !nextDueDate.isAfter(
+                                        tenDaysFromTodayEnd,
+                                      )) {
+                                    accountsToShow.add(
+                                      accountOriginal.copyWith(
+                                        dueDate: nextDueDate,
+                                        isPaid: false,
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
+                              accountsToShow.sort(
+                                (a, b) => a.dueDate.compareTo(b.dueDate),
+                              );
+                              if (accountsToShow.isEmpty) {
+                                return const Center(
+                                  child: Text(
+                                    'Nenhuma conta próxima do vencimento.',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return ListView.builder(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16.0,
+                                  vertical: 2.0,
+                                ),
+                                itemCount: accountsToShow.length,
+                                itemBuilder: (context, index) {
+                                  final accountToDisplay =
+                                      accountsToShow[index];
+                                  final categoryIcon =
+                                      _getCategoryIconForAccount(
+                                        accountToDisplay.categoryId,
+                                      );
+                                  final accountDueDateOnly = DateTime(
+                                    accountToDisplay.dueDate.year,
+                                    accountToDisplay.dueDate.month,
+                                    accountToDisplay.dueDate.day,
+                                  );
+                                  Account originalAccountForSelection =
+                                      allAccountsFromStream.firstWhere(
+                                        (a) => a.id == accountToDisplay.id,
+                                        orElse: () => accountToDisplay,
+                                      );
+                                  bool isSelected = _selectedAccounts.any(
+                                    (selectedAcc) =>
+                                        selectedAcc.id ==
+                                        originalAccountForSelection.id,
+                                  );
+                                  Color cardColor = Theme.of(context).cardColor;
+
+                                  if (isSelected) {
+                                    cardColor =
+                                        (_selectionMode &&
+                                                _blinkController.isAnimating)
+                                            ? (_blinkColorAnimation.value ??
+                                                Colors.blue.shade200)
+                                            : Colors.blue.shade200;
+                                  } else if (accountDueDateOnly
+                                      .isAtSameMomentAs(nowOnly)) {
+                                    cardColor = Colors.red.shade200;
+                                  } else if (accountDueDateOnly
+                                      .isAtSameMomentAs(tomorrowOnly)) {
+                                    cardColor = Colors.yellow.shade300;
+                                  }
+
+                                  return GestureDetector(
+                                    onLongPress:
+                                        () => _toggleAccountSelection(
+                                          originalAccountForSelection,
+                                        ),
+
+                                    onTap: () {
+                                      if (_selectionMode) {
+                                        _toggleAccountSelection(
+                                          originalAccountForSelection,
+                                        );
+                                      } else {
+                                        print(
+                                          "Clique simples em: ${accountToDisplay.name} (Modo de seleção DESATIVADO)",
+                                        );
+                                      }
+                                    },
+                                    child: Card(
+                                      elevation: 1.0,
+                                      margin: const EdgeInsets.symmetric(
+                                        vertical: 2.5,
+                                        horizontal: 8.0,
+                                      ),
+                                      color: cardColor,
+                                      child: ListTile(
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10.0,
+                                              vertical: 4.0,
+                                            ),
+                                        leading: Icon(
+                                          categoryIcon,
+                                          size: 20,
+                                          color:
+                                              isSelected
+                                                  ? Colors.blue.shade800
+                                                  : Colors.blue,
+                                        ),
+                                        title: Text(
+                                          accountToDisplay.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: Text(
+                                          'Vence: ${DateFormat('dd/MM/yy').format(accountToDisplay.dueDate.toLocal())}' +
+                                              (accountToDisplay.value != null
+                                                  ? ' - R\$ ${accountToDisplay.value!.toStringAsFixed(2)}'
+                                                  : '') +
+                                              (accountToDisplay.isRecurring &&
+                                                      !isSelected
+                                                  ? ' (Mensal)'
+                                                  : ''),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        if (!_selectionMode)
+                          Container(
+                            height: centralFloatingButtonsAreaHeight,
+                            padding: const EdgeInsets.symmetric(vertical: 5.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    FloatingActionButton(
+                                      heroTag: 'vouPagarBtn_mainPage_col',
+                                      onPressed: () {
+                                        /* TODO: Ação */
+                                      },
+                                      backgroundColor: Colors.orange,
+                                      shape: const CircleBorder(),
+                                      child: const Icon(Icons.access_time),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Vou Pagar',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black.withOpacity(0.85),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(width: 120),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    FloatingActionButton(
+                                      heroTag: 'pagoBtn_mainPage_col',
+                                      onPressed: () {
+                                        /* TODO: Ação */
+                                      },
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      shape: const CircleBorder(),
+                                      child: const Icon(Icons.check),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Pago',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black.withOpacity(0.85),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        SizedBox(height: bottomFrameHeight),
+                      ],
+                    ),
+
+                    if (_selectionMode)
+                      Positioned(
+                        bottom: bottomFrameHeight + 5,
+                        left: 20,
+                        right: 20,
+                        height: selectionActionButtonsAreaHeight,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).scaffoldBackgroundColor.withOpacity(0.97),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  FloatingActionButton(
+                                    heroTag: 'rescheduleSelectedBtn',
+                                    onPressed:
+                                        _selectedAccounts.isEmpty
+                                            ? null
+                                            : _scheduleNewDateForSelectedAccounts,
+                                    backgroundColor: Colors.orange,
+                                    foregroundColor: Colors.white,
+                                    mini: true,
+                                    shape: const CircleBorder(),
+                                    child: const Icon(Icons.calendar_today),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    'Reagendar (${_selectedAccounts.length})',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  FloatingActionButton(
+                                    heroTag: 'paySelectedBtn',
+                                    onPressed:
+                                        _selectedAccounts.isEmpty
+                                            ? null
+                                            : _markSelectedAccountsAsPaid,
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    mini: true,
+                                    shape: const CircleBorder(),
+                                    child: const Icon(Icons.check),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    'Pago (${_selectedAccounts.length})',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.endDocked,
+              floatingActionButton: Padding(
+                padding: const EdgeInsets.only(right: 16.0, bottom: 20.0),
+                child: FloatingActionButton(
+                  heroTag: 'addCategoryBtn_mainPage',
+                  onPressed: _showAddCategoryDialog,
+                  backgroundColor: Colors.blue,
+                  shape: const CircleBorder(),
+                  child: const Icon(Icons.add),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

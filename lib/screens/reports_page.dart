@@ -1,20 +1,22 @@
-// In your file lib/screens/reports_page.dart
-
+// lib/screens/reports_page.dart
 import 'package:flutter/material.dart';
-import '../models/account.dart'; // Make sure the path to your Account model is correct
-import '../models/category.dart'; // Make sure the path to your Category model is correct
-import 'package:intl/intl.dart'; // Import DateFormat
-import 'package:collection/collection.dart'; // Import collection for firstWhereOrNull
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:collection/collection.dart';
+
+import '../models/account.dart';
+import '../models/category.dart';
+
+enum ReportFilter { daily, weekly, monthly, category, allTime }
 
 class ReportsPage extends StatefulWidget {
   final List<Account> paidAccounts;
-  final List<Category>
-  categories; // Passamos as categorias para poder filtrar por elas
+  final List<Category> categories;
 
   const ReportsPage({
     Key? key,
     required this.paidAccounts,
-    required this.categories, // Recebe as categorias
+    required this.categories,
   }) : super(key: key);
 
   @override
@@ -22,334 +24,358 @@ class ReportsPage extends StatefulWidget {
 }
 
 class _ReportsPageState extends State<ReportsPage> {
-  // Variáveis de estado para as opções de filtragem selecionadas
-  String _selectedFilter = 'Mês'; // Filtro padrão ao abrir a página
-  DateTime _selectedDate =
-      DateTime.now(); // Data padrão para filtros baseados em tempo
-  Category?
-  _selectedCategory; // Categoria selecionada para o filtro por categoria
+  ReportFilter _currentFilter = ReportFilter.monthly;
+  DateTime _selectedDate = DateTime.now();
+  Category? _selectedCategory;
 
-  // Lista para armazenar as contas filtradas e o total
   List<Account> _filteredAccounts = [];
-  double _totalFilteredValue = 0.0;
+  double _totalFilteredAmount = 0.0;
 
   @override
   void initState() {
     super.initState();
-    // Aplica o filtro inicial quando a página carrega (usando o filtro padrão e a data/categoria padrão)
     _applyFilter();
   }
 
-  // Método para aplicar o filtro selecionado e atualizar a lista e o total
   void _applyFilter() {
-    List<Account> filteredList = [];
-    double total = 0.0;
+    List<Account> tempAccounts = [];
+    double tempTotal = 0.0;
 
-    // Lógica de filtragem baseada no filtro selecionado (_selectedFilter)
-    if (_selectedFilter == 'Mês') {
-      // Filtra por mês e ano da data selecionada
-      filteredList =
-          widget.paidAccounts.where((account) {
-            // Compara apenas o ano e o mês da data de vencimento (que agora representa a data de pagamento)
-            // Note que a data de vencimento aqui está sendo usada como a data que a conta foi marcada como paga
-            return account.dueDate.year == _selectedDate.year &&
-                account.dueDate.month == _selectedDate.month;
-          }).toList();
-    } else if (_selectedFilter == 'Semana') {
-      // Filtra pela semana que contém a data selecionada (_selectedDate)
-      // Calcula o início e o fim da semana (considerando segunda como primeiro dia)
-      final startOfWeek = _selectedDate.subtract(
-        Duration(days: _selectedDate.weekday - 1),
-      );
-      final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    for (var account in widget.paidAccounts) {
+      final DateTime effectiveDate =
+          account.paidDate?.toLocal() ?? account.dueDate.toLocal();
 
-      filteredList =
-          widget.paidAccounts.where((account) {
-            // Cria uma data com apenas dia, mês e ano para a comparação
-            final accountDateOnly = DateTime(
-              account.dueDate.year,
-              account.dueDate.month,
-              account.dueDate.day,
-            );
-            // Verifica se a data da conta está dentro da semana (inclusive)
-            return accountDateOnly.isAfter(
-                  startOfWeek.subtract(const Duration(days: 1)),
-                ) && // Verifica se é depois do dia anterior ao início da semana
-                accountDateOnly.isBefore(
-                  endOfWeek.add(const Duration(days: 1)),
-                ); // Verifica se é antes do dia seguinte ao fim da semana
-          }).toList();
-    } else if (_selectedFilter == 'Dia') {
-      // Filtra por dia da data selecionada
-      filteredList =
-          widget.paidAccounts.where((account) {
-            // Cria uma data com apenas dia, mês e ano para a comparação
-            final accountDateOnly = DateTime(
-              account.dueDate.year,
-              account.dueDate.month,
-              account.dueDate.day,
-            );
-            final selectedDateOnly = DateTime(
-              _selectedDate.year,
-              _selectedDate.month,
-              _selectedDate.day,
-            );
-            return accountDateOnly.isAtSameMomentAs(selectedDateOnly);
-          }).toList();
-    } else if (_selectedFilter == 'Categoria') {
-      // *** Lógica CORRIGIDA para filtrar por categoria selecionada ***
-      if (_selectedCategory != null) {
-        // Filtra contas pagas verificando se a conta pertence à lista de contas da categoria selecionada.
-        // Isso depende de sua classe Category ter uma propriedade que seja uma lista de Accounts (ex: 'accounts')
-        // E da classe Account ter ==/hashCode correto (baseado no ID único).
-        filteredList =
-            widget.paidAccounts.where((paidAccount) {
-              // Obtém a categoria da conta paga usando o helper
-              final accountCategory = _getCategoryForAccount(paidAccount);
-              // Inclui a conta se a categoria foi encontrada E é a categoria selecionada
-              // A comparação aqui usa o objeto Category diretamente ou um ID, dependendo de como você implementou Category ==
-              return accountCategory != null &&
-                  accountCategory ==
-                      _selectedCategory; // Compara objetos Category (requer Category sobrescrevendo ==/hashCode)
-              // Ou se Category tiver apenas ID e Account tiver categoryId:
-              // return paidAccount.categoryId != null && paidAccount.categoryId == _selectedCategory!.id;
-            }).toList();
-      } else {
-        // Se 'Todas as Categorias' for selecionado (_selectedCategory é null)
-        filteredList = widget.paidAccounts; // Mostra todas as contas pagas
+      if (_currentFilter == ReportFilter.category) {
+        if (_selectedCategory != null) {
+          if (account.categoryId == _selectedCategory!.id) {
+            tempAccounts.add(account);
+            tempTotal += account.value ?? 0.0;
+          }
+        } else {
+          tempAccounts.add(account);
+          tempTotal += account.value ?? 0.0;
+        }
+        continue;
       }
-    } else if (_selectedFilter == 'Todos') {
-      // 'Todos' filter, show all paid accounts
-      filteredList = widget.paidAccounts;
+
+      bool matchesPeriod = false;
+
+      switch (_currentFilter) {
+        case ReportFilter.daily:
+          matchesPeriod = DateUtils.isSameDay(effectiveDate, _selectedDate);
+          break;
+        case ReportFilter.weekly:
+          final DateTime startOfWeek = _selectedDate.subtract(
+            Duration(days: _selectedDate.weekday - 1),
+          );
+          final DateTime endOfWeek = startOfWeek.add(const Duration(days: 6));
+          matchesPeriod =
+              !effectiveDate.isBefore(startOfWeek) &&
+              !effectiveDate.isAfter(endOfWeek);
+          break;
+        case ReportFilter.monthly:
+          matchesPeriod =
+              effectiveDate.year == _selectedDate.year &&
+              effectiveDate.month == _selectedDate.month;
+          break;
+        case ReportFilter.allTime:
+          matchesPeriod = true;
+          break;
+        case ReportFilter.category:
+          break;
+      }
+
+      if (matchesPeriod) {
+        tempAccounts.add(account);
+        tempTotal += account.value ?? 0.0;
+      }
     }
 
-    // Calcula o total dos valores das contas filtradas
-    for (var account in filteredList) {
-      total +=
-          account.value ?? 0.0; // Sum the value (uses 0.0 if value is null)
-    }
+    tempAccounts.sort(
+      (a, b) => (a.paidDate ?? a.dueDate).compareTo(b.paidDate ?? b.dueDate),
+    );
 
-    // Sort the filtered list by date (optional, but good for reports)
-    filteredList.sort((a, b) => a.dueDate.compareTo(b.dueDate));
-
-    // Update the state with the filtered list and the total
     setState(() {
-      _filteredAccounts = filteredList;
-      _totalFilteredValue = total;
+      _filteredAccounts = tempAccounts;
+      _totalFilteredAmount = tempTotal;
     });
   }
 
-  // Helper method to get the category for a given account
-  // Iterates through categories to find the one containing the account.
+  String _getFilterPeriodTitle() {
+    switch (_currentFilter) {
+      case ReportFilter.daily:
+        return 'Relatório Diário: ${DateFormat('dd/MM/yyyy').format(_selectedDate.toLocal())}';
+      case ReportFilter.weekly:
+        final DateTime startOfWeek = _selectedDate.subtract(
+          Duration(days: _selectedDate.weekday - 1),
+        );
+        final DateTime endOfWeek = startOfWeek.add(const Duration(days: 6));
+        return 'Relatório Semanal: ${DateFormat('dd/MM').format(startOfWeek.toLocal())} - ${DateFormat('dd/MM').format(endOfWeek.toLocal())}';
+      case ReportFilter.monthly:
+        return 'Relatório Mensal: ${DateFormat('MM/yyyy').format(_selectedDate.toLocal())}';
+      case ReportFilter.category:
+        return 'Relatório por Categoria: ${_selectedCategory?.name ?? 'Todas as Categorias'}';
+      case ReportFilter.allTime:
+        return 'Relatório Geral: Todas as Contas Pagas';
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+        _applyFilter();
+      });
+    }
+  }
+
+  void _selectCategory() {
+    showDialog<Category?>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Selecionar Categoria', style: GoogleFonts.poppins()),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(
+                    'Todas as Categorias',
+                    style: GoogleFonts.poppins(),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context, null);
+                  },
+                ),
+                ...widget.categories
+                    .map(
+                      (category) => ListTile(
+                        title: Text(
+                          category.name.isNotEmpty
+                              ? (category.name[0].toUpperCase() +
+                                  category.name.substring(1).toLowerCase())
+                              : 'Categoria S/ Nome',
+                          style: GoogleFonts.poppins(),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context, category);
+                        },
+                      ),
+                    )
+                    .toList(),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((selectedCategory) {
+      if (selectedCategory != null || _selectedCategory != null) {
+        setState(() {
+          _selectedCategory = selectedCategory;
+          _currentFilter = ReportFilter.category;
+          _applyFilter();
+        });
+      }
+    });
+  }
+
   Category? _getCategoryForAccount(Account account) {
-    // *** Implementação do Helper ***
-    // Encontra a categoria dentro da lista de categorias passada que contém esta conta.
-    // Requer que a classe Category tenha uma propriedade que seja uma lista de Accounts (ex: 'accounts')
-    // e que a classe Account tenha o ==/hashCode correto (baseado no ID único).
     return widget.categories.firstWhereOrNull(
-      (cat) => cat.accounts.contains(account),
+      (cat) => cat.id == account.categoryId,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Relatórios de Contas Pagas')),
+      appBar: AppBar(
+        title: Text('Relatórios de Pagamentos', style: GoogleFonts.poppins()),
+        centerTitle: true,
+      ),
       body: Column(
-        // Use Column for vertical layout
-        crossAxisAlignment:
-            CrossAxisAlignment.stretch, // Stretch children horizontally
         children: [
-          // Filter Selection Section
           Padding(
-            padding: const EdgeInsets.all(
-              16.0,
-            ), // Aplica 16.0 de padding em todos os lados
+            padding: const EdgeInsets.all(8.0),
             child: Column(
-              // Column for vertical layout of filter options
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Filtrar por:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ), // Highlight "Filter by" text
-                ),
-                const SizedBox(height: 8),
-                // Dropdown para selecionar o tipo de filtro (Dia, Semana, Mês, Categoria, Todos)
-                DropdownButton<String>(
-                  isExpanded: true, // Faz o dropdown ocupar o espaço disponível
-                  value: _selectedFilter,
-                  onChanged: (String? newValue) {
-                    if (newValue != null) {
-                      setState(() {
-                        _selectedFilter = newValue;
-                        // Reinicia os critérios de filtro quando o tipo de filtro muda
-                        _selectedDate =
-                            DateTime.now(); // Volta para a data atual
-                        _selectedCategory =
-                            null; // Limpa a categoria selecionada
-                        _applyFilter(); // Aplica o filtro com os critérios reiniciados (ou padrão)
-                      });
-                    }
-                  },
-                  items:
-                      <String>[
-                        'Dia',
-                        'Semana',
-                        'Mês',
-                        'Categoria',
-                        'Todos',
-                      ].map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
+                Wrap(
+                  spacing: 8.0,
+                  alignment: WrapAlignment.center,
+                  children:
+                      ReportFilter.values.map((filter) {
+                        String label = '';
+                        switch (filter) {
+                          case ReportFilter.daily:
+                            label = 'Dia';
+                            break;
+                          case ReportFilter.weekly:
+                            label = 'Semana';
+                            break;
+                          case ReportFilter.monthly:
+                            label = 'Mês';
+                            break;
+                          case ReportFilter.category:
+                            label = 'Categoria';
+                            break;
+                          case ReportFilter.allTime:
+                            label = 'Tudo';
+                            break;
+                        }
+                        return ChoiceChip(
+                          label: Text(
+                            label,
+                            style: GoogleFonts.poppins(
+                              color:
+                                  _currentFilter == filter
+                                      ? Colors.white
+                                      : Colors.blueGrey[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          selected: _currentFilter == filter,
+                          selectedColor: Colors.blue[600],
+                          backgroundColor: Colors.grey[200],
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                _currentFilter = filter;
+                                if (filter != ReportFilter.category) {
+                                  _selectedCategory = null;
+                                }
+                                _applyFilter();
+                              });
+                            }
+                          },
                         );
                       }).toList(),
                 ),
+                const SizedBox(height: 8),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    if (_currentFilter == ReportFilter.daily ||
+                        _currentFilter == ReportFilter.weekly ||
+                        _currentFilter == ReportFilter.monthly)
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _selectDate(context),
+                          icon: const Icon(Icons.calendar_today),
+                          label: Text(
+                            'Selecionar Data',
+                            style: GoogleFonts.poppins(),
+                          ),
+                        ),
+                      ),
+                    if (_currentFilter == ReportFilter.category)
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _selectCategory,
+                          icon: const Icon(Icons.category),
+                          label: Text(
+                            'Selecionar Categoria',
+                            style: GoogleFonts.poppins(),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 16),
-                // Interface para selecionar o critério específico do filtro (Data ou Categoria)
-                if (_selectedFilter == 'Dia' ||
-                    _selectedFilter == 'Semana' ||
-                    _selectedFilter == 'Mês')
-                  Row(
-                    // Row para alinhar o texto da data e o botão do seletor
-                    children: [
-                      Expanded(
-                        // Permite que o texto da data ocupe o espaço disponível
-                        child: Text(
-                          'Data: ${DateFormat('dd/MM/yyyy').format(_selectedDate)}', // Exibe a data selecionada formatada
-                          style: const TextStyle(
-                            fontSize: 16,
-                          ), // Tamanho da fonte para o texto da data
-                        ),
-                      ),
-                      IconButton(
-                        // Botão para abrir o seletor de data
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: () async {
-                          // Mostra o seletor de data
-                          final DateTime? pickedDate = await showDatePicker(
-                            context: context,
-                            initialDate:
-                                _selectedDate, // Data inicial no seletor é a data atualmente selecionada
-                            firstDate: DateTime(
-                              2000,
-                            ), // Data mais antiga selecionável (ajuste conforme a data da sua conta mais antiga)
-                            lastDate: DateTime.now().add(
-                              const Duration(days: 365),
-                            ), // Permite selecionar até um ano no futuro (ajuste se necessário)
-                          );
-                          // Se uma data foi selecionada e é diferente da data atual
-                          if (pickedDate != null &&
-                              pickedDate != _selectedDate) {
-                            setState(() {
-                              _selectedDate =
-                                  pickedDate; // Atualiza a data selecionada
-                              _applyFilter(); // Aplica o filtro com a nova data
-                            });
-                          }
-                        },
-                      ),
-                    ],
+
+                Text(
+                  _getFilterPeriodTitle(),
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueGrey[800],
                   ),
-                if (_selectedFilter == 'Categoria')
-                  Row(
-                    // Row para alinhar o dropdown de categoria
-                    children: [
-                      Expanded(
-                        // Permite que o dropdown ocupe o espaço disponível
-                        child: DropdownButton<Category>(
-                          isExpanded:
-                              true, // Faz o dropdown ocupar o espaço disponível
-                          value: _selectedCategory,
-                          hint: const Text(
-                            'Selecione uma Categoria',
-                          ), // Texto exibido quando nada está selecionado
-                          onChanged: (Category? newValue) {
-                            setState(() {
-                              _selectedCategory =
-                                  newValue; // Atualiza a categoria selecionada
-                              _applyFilter(); // Aplica o filtro com a nova categoria
-                            });
-                          },
-                          items: [
-                            // Lista de opções do dropdown
-                            DropdownMenuItem<Category>(
-                              value:
-                                  null, // Opção para 'Todas as Categorias' (valor null)
-                              child: const Text('Todas as Categorias'),
-                            ),
-                            // Mapeia a lista de categorias disponíveis para DropdownMenuItems
-                            // Use category.name.toUpperCase() if you want uppercase in the dropdown
-                            ...widget.categories.map<
-                              DropdownMenuItem<Category>
-                            >((Category category) {
-                              return DropdownMenuItem<Category>(
-                                value: category, // O valor é o objeto Category
-                                child: Text(
-                                  category.name,
-                                ), // O texto exibido no dropdown é o nome da categoria
-                              );
-                            }).toList(),
-                          ],
-                        ),
-                      ),
-                    ],
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Total Pago: R\$ ${NumberFormat.currency(locale: 'pt_BR', symbol: '').format(_totalFilteredAmount)}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[700],
                   ),
+                  textAlign: TextAlign.center,
+                ),
+                const Divider(height: 24, thickness: 1),
               ],
             ),
           ),
-          // Seção de Resumo (Total Pago)
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Total Pago${_selectedFilter != 'Todos' ? ' neste ${_selectedFilter.toLowerCase()}' : ''}: R\$ ${_totalFilteredValue.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ), // Destaca o total
-            ),
-          ),
-          // Seção da Lista de Contas Filtradas
-          Expanded(
-            // Permite que a lista ocupe o espaço restante
-            child: ListView.builder(
-              itemCount:
-                  _filteredAccounts
-                      .length, // Quantidade de itens na lista filtrada
-              itemBuilder: (context, index) {
-                // Constrói cada item da lista
-                final account = _filteredAccounts[index];
-                // Exemplo de ListTile com ícone e nome da categoria
-                final categoryForAccount = _getCategoryForAccount(
-                  account,
-                ); // Obtém a categoria da conta
 
-                return ListTile(
-                  leading: Icon(
-                    // Ícone da categoria (se encontrada)
-                    categoryForAccount?.icon ??
-                        Icons
-                            .receipt, // Usa o ícone da categoria ou um ícone genérico
-                    color: Colors.blue, // Cor do ícone
-                  ),
-                  title: Text(account.name), // Nome da conta
-                  subtitle: Text(
-                    // Data de pagamento (usando dueDate como placeholder) e valor
-                    'Pago em: ${DateFormat('dd/MM/yyyy').format(account.dueDate.toLocal())}' + // Assume que dueDate agora representa a data de pagamento para contas nesta lista
-                        (account.value != null
-                            ? ' - R\$ ${account.value!.toStringAsFixed(2)}'
-                            : ''), // Exibe o valor se não for null
-                  ),
-                  trailing: Text(
-                    // Nome da categoria (se encontrada)
-                    categoryForAccount?.name ?? 'Sem Categoria',
-                    style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                );
-              },
-            ),
+          // Lista de contas pagas filtradas com Scrollbar
+          Expanded(
+            child:
+                _filteredAccounts.isEmpty
+                    ? Center(
+                      child: Text(
+                        'Nenhuma conta paga encontrada para este filtro.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          color: Colors.grey[600],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                    : Scrollbar(
+                      // Adicionado o widget Scrollbar aqui
+                      thumbVisibility:
+                          true, // Garante que a barra de rolagem seja sempre visível
+                      child: ListView.builder(
+                        itemCount: _filteredAccounts.length,
+                        itemBuilder: (context, index) {
+                          final account = _filteredAccounts[index];
+                          final category = _getCategoryForAccount(account);
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 16.0,
+                              vertical: 4.0,
+                            ),
+                            elevation: 1,
+                            child: ListTile(
+                              leading: Icon(
+                                category?.icon ?? Icons.label_off,
+                                color: Colors.green[400],
+                              ),
+                              title: Text(
+                                account.name,
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${DateFormat('dd/MM/yyyy').format(account.paidDate?.toLocal() ?? account.dueDate.toLocal())} - ${category?.name ?? 'Sem Categoria'}',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              trailing: Text(
+                                'R\$ ${NumberFormat.currency(locale: 'pt_BR', symbol: '').format(account.value ?? 0.0)}',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green[700],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
           ),
         ],
       ),
