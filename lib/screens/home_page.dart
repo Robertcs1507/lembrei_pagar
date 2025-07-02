@@ -3,17 +3,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:lembrei_pegar/services/notification_service.dart';
-
+import 'package:google_fonts/google_fonts.dart'; // Importado GoogleFonts
 import '../models/category.dart';
-import '../models/account.dart';
+import '../models/account.dart'; // Importado o modelo Account
+import '../services/notification_service.dart'; // Serviço de notificação
 import 'category_accounts_page.dart';
 import 'reports_page.dart';
-import '../services/notification_service.dart'; // Importe seu serviço de notificação
+// import '../widgets/custom_drawer.dart'; // Se não estiver mais usando, pode remover esta linha.
 
 var uuid = Uuid();
 
-// Seu MolduraPainter (mantenha como estava)
+// Seu MolduraPainter (mantido como estava)
 class MolduraPainter extends CustomPainter {
   final Color startColor;
   final Color endColor;
@@ -526,7 +526,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 } catch (e) {
                   print('Erro ao excluir categoria: $e');
                   if (mounted) {
-                    Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Erro ao excluir categoria: $e'),
@@ -542,9 +541,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       },
     );
   }
-
-  // <<< FUNÇÃO AJUSTADA PARA CONTAS RECORRENTES (OPÇÃO A) E NOTIFICAÇÕES >>>
-  // Dentro da classe _HomePageState
 
   Future<void> _loadInitialPaidAccounts() async {
     print("--- Iniciando _loadInitialPaidAccounts ---");
@@ -585,7 +581,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
       }
     } catch (e, s) {
-      // Adicionado StackTrace
       print("Erro CRÍTICO ao carregar contas pagas iniciais: $e");
       print("StackTrace: $s");
       if (mounted) {
@@ -600,10 +595,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _scheduleNotificationsForUpcomingRecurring(Account molde) async {
-    if (!molde.isRecurring || molde.id.isEmpty)
-      return; // Verifica se o ID não está vazio
+    if (!molde.isRecurring || molde.id.isEmpty) return;
 
-    // Cancela notificações antigas do molde antes de agendar novas
     await NotificationService().cancelNotification(
       generateUniqueNotificationId(
         molde.id,
@@ -621,7 +614,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     if (proximoVencimento != null &&
         proximoVencimento.isAfter(DateTime.now())) {
-      // Agendar 1 dia antes
       DateTime umDiaAntes = proximoVencimento.subtract(const Duration(days: 1));
       DateTime horaAgendamentoUmDiaAntes = DateTime(
         umDiaAntes.year,
@@ -643,7 +635,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           payload: molde.id,
         );
       }
-      // Agendar para o dia
       DateTime horaAgendamentoDia = DateTime(
         proximoVencimento.year,
         proximoVencimento.month,
@@ -674,8 +665,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void _markSelectedAccountsAsPaid() async {
     if (_selectedAccounts.isEmpty) return;
     final WriteBatch batch = FirebaseFirestore.instance.batch();
-    final Set<Account> accountsSuccessfullyProcessed =
-        {}; // Para reagendar notificações APENAS dos recorrentes pagos com sucesso
+    final Set<Account> accountsSuccessfullyProcessed = {};
 
     for (var accountOriginal in _selectedAccounts) {
       if (accountOriginal.isRecurring &&
@@ -702,7 +692,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
           accountsSuccessfullyProcessed.add(
             accountOriginal.copyWith(lastPaidDate: ocorrenciaAtualDueDate),
-          ); // Adiciona o molde com lastPaidDate atualizado
+          );
         } else {
           if (mounted)
             ScaffoldMessenger.of(context).showSnackBar(
@@ -719,7 +709,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             .collection('accounts')
             .doc(accountOriginal.id);
         batch.update(accountRef, {'isPaid': true});
-        // Cancela notificações para contas não recorrentes pagas
         await NotificationService().cancelNotification(
           generateUniqueNotificationId(
             accountOriginal.id,
@@ -732,9 +721,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             reminderTypeSuffix: "_due_date",
           ),
         );
-        accountsSuccessfullyProcessed.add(
-          accountOriginal,
-        ); // Adiciona para mensagem de sucesso
+        accountsSuccessfullyProcessed.add(accountOriginal);
       }
     }
 
@@ -750,10 +737,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           );
         }
-        // Após o commit, reagenda notificações para as PRÓXIMAS ocorrências dos moldes que foram pagos
         for (var moldeProcessado in accountsSuccessfullyProcessed) {
           if (moldeProcessado.isRecurring) {
-            // Não precisa buscar do Firestore de novo, pois já temos o lastPaidDate atualizado no moldeProcessado
             await _scheduleNotificationsForUpcomingRecurring(moldeProcessado);
           }
         }
@@ -775,7 +760,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final DateTime now = DateTime.now();
     final DateTime firstSelectableDate = DateTime(now.year, now.month, now.day);
 
-    // Usa a dueDate da primeira conta selecionada, que já é a data da ocorrência para recorrentes
     DateTime initialPickerDate = _selectedAccounts.first.dueDate;
     if (initialPickerDate.isBefore(firstSelectableDate)) {
       initialPickerDate = firstSelectableDate;
@@ -808,12 +792,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         };
 
         if (account.isRecurring) {
-          // Ao reagendar um MOLDE recorrente, atualiza sua dueDate base e o dia do mês.
-          // Também zera o lastPaidDate para "resetar" a série.
           updateData['recurringDayOfMonth'] = newEffectiveDueDate.day;
           updateData['lastPaidDate'] = null;
 
-          // Cancela notificações antigas do molde
           await NotificationService().cancelNotification(
             generateUniqueNotificationId(
               account.id,
@@ -827,9 +808,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           );
         } else {
-          // Para contas não recorrentes, apenas cancela as antigas. A nova será agendada pela CategoryAccountsPage se editada lá,
-          // ou precisaria da função _scheduleOrCancelAccountNotifications da CategoryAccountsPage aqui.
-          // Por ora, apenas cancela na HomePage.
           await NotificationService().cancelNotification(
             generateUniqueNotificationId(
               account.id,
@@ -842,8 +820,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               reminderTypeSuffix: "_due_date",
             ),
           );
-          // A ideia é que a CategoryAccountsPage lide com o reagendamento de não recorrentes.
-          // Se o reagendamento aqui é para uma "instância paga" (isRecurring=false), ela não terá mais notificações.
         }
         batch.update(accountRef, updateData);
       }
@@ -858,7 +834,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           );
         }
-        // Reagendar notificações para os moldes recorrentes que foram alterados
         for (var account in accountsToProcess) {
           if (account.isRecurring) {
             DocumentSnapshot updatedMoldeDoc =
@@ -873,8 +848,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               await _scheduleNotificationsForUpcomingRecurring(moldeAtualizado);
             }
           }
-          // Para não recorrentes, a lógica de agendamento/cancelamento já ocorreu
-          // ou seria na CategoryAccountsPage se fosse uma edição completa.
         }
       } catch (e) {
         if (mounted)
@@ -889,11 +862,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  // <<< FUNÇÃO DE LOGOUT >>>
   Future<void> _signOut() async {
     try {
       await FirebaseAuth.instance.signOut();
-      // O AuthGate cuidará de redirecionar para a LoginPage
     } catch (e) {
       print("Erro ao fazer logout: $e");
       if (mounted) {
@@ -909,15 +880,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _toggleAccountSelection(Account account) {
     setState(() {
-      // Se a conta já está selecionada (comparando por ID), remove. Senão, adiciona.
       final isCurrentlySelected = _selectedAccounts.any(
         (acc) => acc.id == account.id,
       );
       if (isCurrentlySelected) {
         _selectedAccounts.removeWhere((acc) => acc.id == account.id);
       } else {
-        // Para garantir que estamos adicionando o objeto Account correto (molde ou não recorrente)
-        // e não uma instância de exibição com ID diferente, se fosse o caso.
         _selectedAccounts.add(account);
       }
 
@@ -1010,28 +978,85 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: ListView(
           padding: EdgeInsets.zero,
           children: <Widget>[
+            // DrawerHeader AGORA EXIBINDO INFORMAÇÕES DO USUÁRIO
             DrawerHeader(
-              padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-              decoration: BoxDecoration(color: Colors.blue),
+              padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade400, // Fundo azul suave
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start, // Alinhado à esquerda para as informações do usuário
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Text(
-                    'Menu',
-                    style: TextStyle(color: Colors.white, fontSize: 22),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Lembrei de Pagar',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: Colors.white,
+                        backgroundImage:
+                            FirebaseAuth.instance.currentUser?.photoURL != null
+                                ? NetworkImage(
+                                  FirebaseAuth.instance.currentUser!.photoURL!,
+                                )
+                                : null,
+                        child:
+                            FirebaseAuth.instance.currentUser?.photoURL == null
+                                ? Icon(
+                                  Icons.person,
+                                  size: 28,
+                                  color: Colors.blue[400],
+                                )
+                                : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              FirebaseAuth.instance.currentUser?.displayName ??
+                                  'Usuário sem nome',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              FirebaseAuth.instance.currentUser?.email ??
+                                  'email@exemplo.com',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: Colors.white70,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
+
+            // Fim do DrawerHeader ajustado
             ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text('Início'),
+              leading: Icon(Icons.home, color: Colors.blue[600]),
+              title: Text(
+                'Início',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[800],
+                ),
+              ),
               onTap: () => Navigator.pop(context),
             ),
             StreamBuilder<QuerySnapshot>(
@@ -1040,10 +1065,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 BuildContext context,
                 AsyncSnapshot<QuerySnapshot> snapshot,
               ) {
-                if (snapshot.hasError)
-                  return const ListTile(
-                    title: Text('Erro ao carregar categorias'),
+                if (snapshot.hasError) {
+                  return ListTile(
+                    title: Text(
+                      'Erro ao carregar categorias',
+                      style: GoogleFonts.poppins(),
+                    ),
                   );
+                }
                 if (snapshot.connectionState == ConnectionState.waiting)
                   return const Center(
                     child: Padding(
@@ -1086,23 +1115,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         leading: Icon(
                           category.icon ?? Icons.folder,
                           size: 24,
-                          color: Colors.blue,
+                          color: Colors.blue[600],
                         ),
-                        title: Padding(
-                          padding: const EdgeInsets.only(left: 16.0),
-                          child: Text(
-                            category.name.isNotEmpty
-                                ? (category.name[0].toUpperCase() +
-                                    category.name.substring(1).toLowerCase())
-                                : 'Categoria S/ Nome',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
+                        title: Text(
+                          category.name.isNotEmpty
+                              ? (category.name[0].toUpperCase() +
+                                  category.name.substring(1).toLowerCase())
+                              : 'Categoria S/ Nome',
+                          style: GoogleFonts.poppins(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey[800],
                           ),
                         ),
                         trailing: IconButton(
-                          icon: const Icon(Icons.more_vert),
+                          icon: Icon(Icons.more_vert, color: Colors.grey[600]),
                           onPressed: () {
                             Navigator.pop(context);
                             _showCategoryOptions(category);
@@ -1127,18 +1154,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     vertical: 0,
                   ),
                   childrenPadding: EdgeInsets.zero,
-                  iconColor: Colors.blue,
-                  collapsedIconColor: Colors.blue,
-                  leading: const Icon(Icons.category, color: Colors.blue),
-                  title: const Text(
+                  iconColor: Colors.blue[600],
+                  collapsedIconColor: Colors.blue[600],
+                  leading: Icon(Icons.category, color: Colors.blue[600]),
+                  title: Text(
                     'Categorias',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[800],
+                    ),
                   ),
                   initiallyExpanded: true,
                   children: [
                     if (_categories.isEmpty)
-                      const ListTile(
-                        title: Text('Nenhuma categoria adicionada.'),
+                      ListTile(
+                        title: Text(
+                          'Nenhuma categoria adicionada.',
+                          style: GoogleFonts.poppins(),
+                        ),
                       )
                     else
                       Container(
@@ -1160,8 +1194,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.show_chart),
-              title: const Text('Relatórios'),
+              leading: Icon(Icons.show_chart, color: Colors.blue[600]),
+              title: Text(
+                'Relatórios',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[800],
+                ),
+              ),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
@@ -1177,14 +1218,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.info),
-              title: const Text('Sobre'),
+              leading: Icon(Icons.info_outline, color: Colors.blue[600]),
+              title: Text(
+                'Sobre',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[800],
+                ),
+              ),
               onTap: () => Navigator.pop(context),
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.exit_to_app, color: Colors.red),
-              title: const Text('Sair', style: TextStyle(color: Colors.red)),
+              leading: Icon(Icons.exit_to_app, color: Colors.red[400]),
+              title: Text(
+                'Sair',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.red[400],
+                ),
+              ),
               onTap: () {
                 Navigator.pop(context);
                 _signOut();

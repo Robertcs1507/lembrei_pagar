@@ -41,51 +41,46 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBJB9InOWaQkOTih7lDLAxEqQDyEV-xbdQ',
-    appId: '1:187950668823:web:a10eae7cbebf5c2003d052',
-    messagingSenderId: '187950668823',
-    projectId: 'lembrei-de-pagar',
-    authDomain: 'lembrei-de-pagar.firebaseapp.com',
-    storageBucket: 'lembrei-de-pagar.firebasestorage.app',
-    measurementId: 'G-YLLCD1CN1D',
+    apiKey: 'AIzaSyBpZfmjpoaOhOBaRprklV5JGZxejl3kapk',
+    appId: '1:810915098643:web:ddb0e85c227a7c37d98fe6',
+    messagingSenderId: '810915098643',
+    projectId: 'lembrei-de-pagar-a2d6c',
+    authDomain: 'lembrei-de-pagar-a2d6c.firebaseapp.com',
+    storageBucket: 'lembrei-de-pagar-a2d6c.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCLuO20bWXr-aFGkSlCIYiJQeV65i8ygNw',
-    appId: '1:187950668823:android:3d0286f785d13bb303d052',
-    messagingSenderId: '187950668823',
-    projectId: 'lembrei-de-pagar',
-    storageBucket: 'lembrei-de-pagar.firebasestorage.app',
+    apiKey: 'AIzaSyDiPkbsjlJgs2jliNOY88O-fy3y_GTnlfY',
+    appId: '1:810915098643:android:e874f5feefb0ffe6d98fe6',
+    messagingSenderId: '810915098643',
+    projectId: 'lembrei-de-pagar-a2d6c',
+    storageBucket: 'lembrei-de-pagar-a2d6c.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCbl0UGYYR_KtR1kNfDrwkULhncX_GqhXE',
-    appId: '1:187950668823:ios:0e6fd71caff9de4703d052',
-    messagingSenderId: '187950668823',
-    projectId: 'lembrei-de-pagar',
-    storageBucket: 'lembrei-de-pagar.firebasestorage.app',
-    androidClientId: '187950668823-e2vr5ehi2i25kcua1c0l8ma26pql86fi.apps.googleusercontent.com',
+    apiKey: 'AIzaSyAIokK8sNGuv5s7qOhrJb4VRHYeoXBBWcQ',
+    appId: '1:810915098643:ios:05411385f56803d5d98fe6',
+    messagingSenderId: '810915098643',
+    projectId: 'lembrei-de-pagar-a2d6c',
+    storageBucket: 'lembrei-de-pagar-a2d6c.firebasestorage.app',
     iosBundleId: 'com.example.lembreiPegar',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCbl0UGYYR_KtR1kNfDrwkULhncX_GqhXE',
-    appId: '1:187950668823:ios:0e6fd71caff9de4703d052',
-    messagingSenderId: '187950668823',
-    projectId: 'lembrei-de-pagar',
-    storageBucket: 'lembrei-de-pagar.firebasestorage.app',
-    androidClientId: '187950668823-e2vr5ehi2i25kcua1c0l8ma26pql86fi.apps.googleusercontent.com',
+    apiKey: 'AIzaSyAIokK8sNGuv5s7qOhrJb4VRHYeoXBBWcQ',
+    appId: '1:810915098643:ios:05411385f56803d5d98fe6',
+    messagingSenderId: '810915098643',
+    projectId: 'lembrei-de-pagar-a2d6c',
+    storageBucket: 'lembrei-de-pagar-a2d6c.firebasestorage.app',
     iosBundleId: 'com.example.lembreiPegar',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyBJB9InOWaQkOTih7lDLAxEqQDyEV-xbdQ',
-    appId: '1:187950668823:web:baa621eae1f79cf703d052',
-    messagingSenderId: '187950668823',
-    projectId: 'lembrei-de-pagar',
-    authDomain: 'lembrei-de-pagar.firebaseapp.com',
-    storageBucket: 'lembrei-de-pagar.firebasestorage.app',
-    measurementId: 'G-P4Y8TKDCQH',
+    apiKey: 'AIzaSyBpZfmjpoaOhOBaRprklV5JGZxejl3kapk',
+    appId: '1:810915098643:web:4ef43577cab0d978d98fe6',
+    messagingSenderId: '810915098643',
+    projectId: 'lembrei-de-pagar-a2d6c',
+    authDomain: 'lembrei-de-pagar-a2d6c.firebaseapp.com',
+    storageBucket: 'lembrei-de-pagar-a2d6c.firebasestorage.app',
   );
-
 }
