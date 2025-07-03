@@ -490,7 +490,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return AlertDialog(
           title: const Text('Excluir Categoria'),
           content: Text(
-            'Tem certeza que deseja excluir a categoria "${category.name}"? Todas as contas associadas a esta categoria também serão permanentemente excluídas.', // Texto de aviso alterado
+            'Tem certeza que deseja excluir a categoria "${category.name}"? As contas associadas perderão a referência da categoria.',
           ),
           actions: <Widget>[
             TextButton(
@@ -498,59 +498,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               onPressed: () => Navigator.of(context).pop(),
             ),
             TextButton(
-              child: const Text(
-                'Excluir',
-                style: TextStyle(color: Colors.red),
-              ), // Destaca o botão de excluir
+              child: const Text('Excluir'),
               onPressed: () async {
                 try {
-                  // 1. Busca todas as contas que pertencem a esta categoria
                   QuerySnapshot accountsSnapshot =
                       await FirebaseFirestore.instance
                           .collection('accounts')
                           .where('categoryId', isEqualTo: category.id)
                           .get();
-
                   WriteBatch batch = FirebaseFirestore.instance.batch();
-
-                  // 2. Adiciona cada conta encontrada ao batch para exclusão
                   for (DocumentSnapshot doc in accountsSnapshot.docs) {
-                    batch.delete(
-                      doc.reference,
-                    ); // MUDANÇA AQUI: Deleta o documento da conta
+                    batch.update(doc.reference, {'categoryId': ''});
                   }
-
-                  // 3. Executa o batch de exclusão das contas
                   await batch.commit();
-
-                  // 4. Exclui a categoria em si
                   await FirebaseFirestore.instance
                       .collection('categories')
                       .doc(category.id)
                       .delete();
-
                   if (mounted) {
+                    Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      // Use ScaffoldMessenger
                       SnackBar(
                         content: Text(
-                          'Categoria "${category.name}" e todas as contas associadas foram excluídas.', // Mensagem de sucesso alterada
+                          'Categoria "${category.name}" excluída e contas desassociadas.',
                         ),
                       ),
                     );
-                    Navigator.of(context).pop();
                   }
                 } catch (e) {
-                  print('Erro ao excluir categoria e contas: $e');
+                  print('Erro ao excluir categoria: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      // Use ScaffoldMessenger
                       SnackBar(
-                        content: Text('Erro ao excluir categoria e contas: $e'),
+                        content: Text('Erro ao excluir categoria: $e'),
                         backgroundColor: Colors.red,
                       ),
                     );
-                    Navigator.of(context).pop();
                   }
                 }
               },
@@ -564,14 +547,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _loadInitialPaidAccounts() async {
     print("--- Iniciando _loadInitialPaidAccounts ---");
     try {
-      // Ajuste na consulta: remova a condição isRecurring: false
       QuerySnapshot paidSnapshot =
           await FirebaseFirestore.instance
               .collection('accounts')
-              .where(
-                'isPaid',
-                isEqualTo: true,
-              ) // Busca todas as contas marcadas como pagas
+              .where('isPaid', isEqualTo: true)
+              .where('isRecurring', isEqualTo: false)
               .get();
 
       print(
@@ -597,8 +577,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           );
           _paidAccounts.forEach(
             (acc) => print(
-              "  >> Na lista _paidAccounts: ${acc.name}, Valor: ${acc.value}, Paga: ${acc.isPaid}, Rec: ${acc.isRecurring}, PaidDate: ${acc.paidDate}",
-            ), // Adicionei PaidDate no print para depuração
+              "  >> Na lista _paidAccounts: ${acc.name}, Valor: ${acc.value}, Paga: ${acc.isPaid}, Rec: ${acc.isRecurring}",
+            ),
           );
         });
       }
@@ -626,10 +606,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
     await NotificationService().cancelNotification(
-      generateUniqueNotificationId(
-        molde.id,
-        reminderTypeSuffix: "_due_date",
-      ), // CORRIGIDO AQUI
+      generateUniqueNotificationId(molde.id, reminderTypeSuffix: "_due_date"),
     );
 
     DateTime? proximoVencimento = molde.nextPotentialDueDateForRecurringMolde;
@@ -730,18 +707,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             );
         }
       } else {
-        // --- INÍCIO DA ALTERAÇÃO IMPORTANTE AQUI PARA paidDate ---
         DocumentReference accountRef = FirebaseFirestore.instance
             .collection('accounts')
             .doc(accountOriginal.id);
-        batch.update(accountRef, {
-          'isPaid': true,
-          'paidDate': Timestamp.fromDate(
-            DateTime.now(),
-          ), // <-- ADICIONADO: Define paidDate para contas não recorrentes
-        });
-        // --- FIM DA ALTERAÇÃO IMPORTANTE AQUI ---
-
+        batch.update(accountRef, {'isPaid': true});
         await NotificationService().cancelNotification(
           generateUniqueNotificationId(
             accountOriginal.id,
@@ -995,8 +964,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               Map<String, dynamic> userData = userDocSnapshot.data!.data()!;
               int? codePoint = userData['avatarIconCodePoint'];
               String? fontFamily = userData['avatarIconFontFamily'];
-              String? fontPackage =
-                  userData['avatarIconFontPackage']; // Corrigido: fontPackage para avatarIconFontPackage
+              String? fontPackage = userData['avatarIconFontPackage'];
 
               if (codePoint != null && fontFamily != null) {
                 customAvatarIcon = IconData(
@@ -1206,8 +1174,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             final iconFontFamily =
                                 data['iconFontFamily'] as String?;
                             final iconFontPackage =
-                                data['iconFontPackage']
-                                    as String?; // Corrigido aqui
+                                data['iconFontPackage'] as String?;
                             IconData? categoryIcon;
                             if (iconCodePoint != null &&
                                 iconFontFamily != null) {
@@ -1217,14 +1184,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   fontFamily: iconFontFamily,
                                   fontPackage: iconFontPackage,
                                 );
-                              } catch (e) {
-                                // Em caso de erro ao criar IconData, use um ícone padrão
-                                categoryIcon = Icons.folder;
-                              }
-                            } else {
-                              categoryIcon =
-                                  Icons
-                                      .folder; // Ícone padrão se dados estiverem faltando
+                              } catch (e) {}
                             }
                             _categories.add(
                               Category(
